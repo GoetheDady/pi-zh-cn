@@ -6,6 +6,8 @@
  * - thinking 折叠块标签（setHiddenThinkingLabel）
  * - 启动 header（setHeader）
  * - 底部状态栏（setFooter）
+ * - 项目信任弹窗（project_trust handler + 中文 select）
+ * - 内置斜杠命令描述（addAutocompleteProvider 包一层翻译）
  * - 内置 read/bash/edit/write 工具的渲染文案（同名重注册，执行委托原实现）
  *
  * 不改动发给模型的内容（工具 description 保持英文）。
@@ -15,10 +17,6 @@ import type {
   BashToolDetails,
   EditToolDetails,
   ExtensionAPI,
-  FindToolDetails,
-  GrepToolDetails,
-  LsToolDetails,
-  PowerShellToolDetails,
   ReadToolDetails,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -38,8 +36,8 @@ import {
   VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import { readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { zh } from "./zh.ts";
@@ -55,12 +53,83 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ---------- 项目信任弹窗（中文选择器代替内置英文界面） ----------
+  // 复刻 ~/「agent dir」/trust.json 的祖先目录查找逻辑；已有决定的目录不再弹窗。
+  // 与内置的差异：「信任父文件夹」选项无法通过扩展 API 写入父目录决定，故省略。
+  const savedTrustDecision = (dir: string): boolean | null => {
+    let current = dir;
+    try {
+      current = realpathSync(current); // 与 core 的 normalizeCwd 一致
+    } catch {
+      // 目录不存在时保持原样
+    }
+    try {
+      const store = JSON.parse(readFileSync(join(getAgentDir(), "trust.json"), "utf8"));
+      for (;;) {
+        const decision = store[current];
+        if (typeof decision === "boolean") return decision;
+        const parent = dirname(current);
+        if (parent === current) return null;
+        current = parent;
+      }
+    } catch {
+      return null; // 无 trust.json 或内容无效 → 视作没有已存决定
+    }
+  };
+
+  pi.on("project_trust", async (event, ctx) => {
+    // 无 UI（rpc/print 等模式）或已有保存的决定时返回 undecided，让 core 走默认流程。
+    if (!ctx.hasUI || savedTrustDecision(event.cwd) !== null) return { trusted: "undecided" };
+
+    const options = [
+      zh.trust.options.trustAndRemember,
+      zh.trust.options.trustSessionOnly,
+      zh.trust.options.distrustAndRemember,
+      zh.trust.options.distrustSessionOnly,
+    ];
+    const selected = await ctx.ui.select(zh.trust.title(event.cwd), options);
+    switch (selected ?? zh.trust.options.distrustSessionOnly) {
+      case zh.trust.options.trustAndRemember:
+        return { trusted: "yes", remember: true };
+      case zh.trust.options.trustSessionOnly:
+        return { trusted: "yes" };
+      case zh.trust.options.distrustAndRemember:
+        return { trusted: "no", remember: true };
+      default:
+        return { trusted: "no" }; // 取消 = 本次不信任（与内置行为一致）
+    }
+  });
+
   // ---------- UI 文案 + 中文 header/footer（session 启动时应用） ----------
+  let autocompleteTranslated = false;
   pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI) return;
 
     ctx.ui.setWorkingMessage(zh.workingMessage);
     ctx.ui.setHiddenThinkingLabel(zh.hiddenThinkingLabel);
+
+    // 中文化内置斜杠命令描述：包一层自动补全 provider，只替换命令项的
+    // description（文件补全等其他建议原样透传）。替换是幂等的，跨 session 只包一次。
+    if (ctx.mode === "tui" && !autocompleteTranslated) {
+      autocompleteTranslated = true;
+      ctx.ui.addAutocompleteProvider((current) => ({
+        ...(current.triggerCharacters ? { triggerCharacters: current.triggerCharacters } : {}),
+        getSuggestions: async (lines, cursorLine, cursorCol, options) => {
+          const suggestions = await current.getSuggestions(lines, cursorLine, cursorCol, options);
+          if (!suggestions) return null;
+          return {
+            ...suggestions,
+            items: suggestions.items.map((item) => {
+              const key = item.value.replace(/^\//, "") as keyof typeof zh.builtinCommands;
+              const zhDesc = zh.builtinCommands[key];
+              return zhDesc ? { ...item, description: zhDesc } : item;
+            }),
+          };
+        },
+        applyCompletion: (lines, cursorLine, cursorCol, item, prefix) =>
+          current.applyCompletion(lines, cursorLine, cursorCol, item, prefix),
+      }));
+    }
 
     // 中文 header：复刻内置结构（标题 + 折叠提示行 + 引导语），快捷键跟随用户键位配置。
     if (ctx.mode === "tui") {
@@ -264,9 +333,6 @@ export default function (pi: ExtensionAPI) {
               const contextClause = `${zh.footer.ratioLabel}${pctText}/${fmt(windowSize)}${getAutoCompactSuffix()}`;
               const contextIndex = clauses.length;
               clauses.push(contextClause);
-              const xpIndex =
-                process.env.PI_EXPERIMENTAL === "1" ? clauses.length : -1;
-              if (xpIndex >= 0) clauses.push("xp");
 
               // 占比按阈值变色（>90% 红、>70% 黄）；实验标记沿用 built-in 样式。
               const statsLeft = clauses
@@ -277,9 +343,6 @@ export default function (pi: ExtensionAPI) {
                       : pctValue > 70
                         ? theme.fg("warning", clause)
                         : theme.fg("dim", clause);
-                  }
-                  if (index === xpIndex) {
-                    return `${theme.fg("dim", "•")} ${theme.bold(theme.fg("warning", "xp"))}`;
                   }
                   return theme.fg("dim", clause);
                 })
@@ -376,6 +439,137 @@ export default function (pi: ExtensionAPI) {
     registerLocalizedTools(ctx.cwd);
   });
 
+  // ---------- 工具渲染通用小工具 ----------
+  const textOf = (result: any): string =>
+    result.content?.[0]?.type === "text" ? result.content[0].text : "";
+
+  const countNonEmpty = (s: string): number =>
+    s.split("\n").filter((l) => l.trim()).length;
+
+  const notePartial = (msg: string, theme: any): Text =>
+    new Text(theme.fg("warning", msg), 0, 0);
+
+  // 错误结果：内容以 "Error" 开头时只展示首行（edit/write 共用）。
+  const errorFirstLine = (result: any, theme: any): Text | undefined => {
+    const out = textOf(result);
+    return out.startsWith("Error")
+      ? new Text(theme.fg("error", out.split("\n")[0]), 0, 0)
+      : undefined;
+  };
+
+  // 展开态：在摘要后追加逐行弱化的原始输出。
+  const withExpanded = (raw: string, summary: string, theme: any): string =>
+    raw
+      ? `${summary}\n${raw
+          .split("\n")
+          .map((l) => theme.fg("dim", l))
+          .join("\n")}`
+      : summary;
+
+  // 失败判定（bash/powershell 共用）：解析退出码；powershell 通过 extraRe
+  // 追加 Windows 平台提示的识别。
+  function failureState(output: string, extraRe: RegExp[] = []) {
+    const m = output.match(
+      /(?:exit code:\s*|command exited with code\s+)(\d+)/i,
+    );
+    const exitCode = m ? parseInt(m[1], 10) : null;
+    return {
+      exitCode,
+      failed:
+        exitCode !== null ||
+        /^error\b/i.test(output) ||
+        /\n\ncommand (?:timed out|was aborted|failed)/i.test(output) ||
+        extraRe.some((re) => re.test(output)),
+    };
+  }
+
+  // shell 类工具（bash/powershell 文案同构）的渲染对。
+  type ShellCopy =
+    | typeof zh.tools.bash
+    | typeof zh.tools.powershell;
+  const shellRenders = (w: ShellCopy, extraRe: RegExp[] = []) => ({
+    renderCall(args: any, theme: any): Text {
+      let text = theme.fg("toolTitle", theme.bold(w.title));
+      const cmd: string =
+        args.command.length > 80
+          ? `${args.command.slice(0, 77)}...`
+          : args.command;
+      text += theme.fg("accent", cmd);
+      if (args.timeout) text += theme.fg("dim", w.timeout(args.timeout));
+      return new Text(text, 0, 0);
+    },
+
+    renderResult(
+      result: any,
+      { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
+      theme: any,
+    ): Text {
+      if (isPartial) return notePartial(w.running, theme);
+      const output = textOf(result);
+      const { exitCode, failed } = failureState(output, extraRe);
+      let text = failed
+        ? theme.fg(
+            "error",
+            exitCode !== null ? w.exit(exitCode) : w.failed,
+          )
+        : theme.fg("success", w.done);
+      text += theme.fg("dim", ` (${w.lines(countNonEmpty(output))})`);
+      if (
+        (result.details as BashToolDetails | undefined)?.truncation?.truncated
+      ) {
+        text += theme.fg("warning", ` ${w.truncated}`);
+      }
+      return new Text(withExpanded(expanded ? output : "", text, theme), 0, 0);
+    },
+  });
+
+  // 计数类工具（grep/find/ls 文案同构）的结果渲染：无匹配哨兵、条数统计、
+  // 上限提示与截断警告四处逻辑一致，仅文案不同。
+  function countResultRender(
+    labels: {
+      searching: string;
+      noMatch: string;
+      found: (n: number) => string;
+      limit?: (n: number) => string;
+      truncated: string;
+    },
+    sentinel: string,
+    limitField: string,
+  ) {
+    return (
+      result: any,
+      { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
+      theme: any,
+    ): Text => {
+      if (isPartial) return notePartial(labels.searching, theme);
+      const details = result.details ?? {};
+      const output = textOf(result);
+      const isEmpty = output === sentinel;
+      let text = theme.fg(
+        isEmpty ? "muted" : "success",
+        isEmpty ? labels.noMatch : labels.found(countNonEmpty(output)),
+      );
+      if (labels.limit && typeof details[limitField] === "number") {
+        text += theme.fg("warning", labels.limit(details[limitField]));
+      }
+      // 与旧实现的行为差异：grep 原本同时检查 linesTruncated，find/ls 只查
+      // truncation.truncated；这里统一为两者都检查，Find/LsToolDetails 目前无
+      // linesTruncated 字段，运行时行为等价。若上游新增该字段需复核。
+      if (details.linesTruncated || details.truncation?.truncated) {
+        text += theme.fg("warning", labels.truncated);
+      }
+      return new Text(
+        withExpanded(
+          expanded ? (isEmpty ? labels.noMatch : output) : "",
+          text,
+          theme,
+        ),
+        0,
+        0,
+      );
+    };
+  }
+
   function registerLocalizedTools(cwd: string) {
     const activeTools = pi.getActiveTools();
     const builtinTools = new Set(
@@ -387,12 +581,11 @@ export default function (pi: ExtensionAPI) {
 
     // ---------- 内置工具汉化渲染 ----------
     // read
-    const originalRead = createReadTool(cwd);
     pi.registerTool({
-      ...originalRead,
+      ...createReadTool(cwd),
       label: zh.tools.read.label,
 
-      renderCall(args: any, theme: any, _context: any) {
+      renderCall(args: any, theme: any) {
         let text = theme.fg("toolTitle", theme.bold(`${zh.tools.read.title} `));
         text += theme.fg("accent", args.path);
         if (args.offset || args.limit) {
@@ -408,14 +601,10 @@ export default function (pi: ExtensionAPI) {
         result: any,
         { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
         theme: any,
-        _context: any,
       ) {
-        if (isPartial)
-          return new Text(theme.fg("warning", zh.tools.read.reading), 0, 0);
+        if (isPartial) return notePartial(zh.tools.read.reading, theme);
 
-        const details = result.details as ReadToolDetails | undefined;
         const content = result.content[0];
-
         if (content?.type === "image") {
           return new Text(theme.fg("success", zh.tools.read.imageLoaded), 0, 0);
         }
@@ -423,103 +612,40 @@ export default function (pi: ExtensionAPI) {
           return new Text(theme.fg("error", zh.tools.read.noContent), 0, 0);
         }
 
-        const lineCount = content.text.split("\n").length;
-        let text = theme.fg("success", zh.tools.read.lines(lineCount));
-
-        if (details?.truncation?.truncated) {
+        let text = theme.fg(
+          "success",
+          zh.tools.read.lines(content.text.split("\n").length),
+        );
+        const truncation = (result.details as ReadToolDetails | undefined)
+          ?.truncation;
+        if (truncation?.truncated) {
           text += theme.fg(
             "warning",
-            zh.tools.read.truncatedFrom(details.truncation.totalLines),
+            zh.tools.read.truncatedFrom(truncation.totalLines),
           );
         }
-
-        if (expanded) {
-          for (const line of content.text.split("\n")) {
-            text += `\n${theme.fg("dim", line)}`;
-          }
-        }
-
-        return new Text(text, 0, 0);
+        return new Text(
+          withExpanded(expanded ? content.text : "", text, theme),
+          0,
+          0,
+        );
       },
     });
 
-    // bash
-    const originalBash = createBashTool(cwd);
+    // bash / powershell（渲染逻辑同构，仅文案与失败判定集合不同）
     pi.registerTool({
-      ...originalBash,
+      ...createBashTool(cwd),
       label: zh.tools.bash.label,
-
-      renderCall(args: any, theme: any, _context: any) {
-        let text = theme.fg("toolTitle", theme.bold(zh.tools.bash.title));
-        const cmd: string =
-          args.command.length > 80
-            ? `${args.command.slice(0, 77)}...`
-            : args.command;
-        text += theme.fg("accent", cmd);
-        if (args.timeout) {
-          text += theme.fg("dim", zh.tools.bash.timeout(args.timeout));
-        }
-        return new Text(text, 0, 0);
-      },
-
-      renderResult(
-        result: any,
-        { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
-        theme: any,
-        _context: any,
-      ) {
-        if (isPartial)
-          return new Text(theme.fg("warning", zh.tools.bash.running), 0, 0);
-
-        const details = result.details as BashToolDetails | undefined;
-        const content = result.content[0];
-        const output: string = content?.type === "text" ? content.text : "";
-
-        const exitMatch = output.match(
-          /(?:exit code:\s*|command exited with code\s+)(\d+)/i,
-        );
-        const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : null;
-        const failed =
-          exitCode !== null ||
-          /^error\b/i.test(output) ||
-          /\n\ncommand (?:timed out|was aborted|failed)/i.test(output);
-        const lineCount = output.split("\n").filter((l) => l.trim()).length;
-
-        let text = "";
-        if (!failed) {
-          text += theme.fg("success", zh.tools.bash.done);
-        } else {
-          text += theme.fg(
-            "error",
-            exitCode !== null
-              ? zh.tools.bash.exit(exitCode)
-              : zh.tools.bash.failed,
-          );
-        }
-        text += theme.fg("dim", ` (${zh.tools.bash.lines(lineCount)})`);
-
-        if (details?.truncation?.truncated) {
-          text += theme.fg("warning", ` ${zh.tools.bash.truncated}`);
-        }
-
-        if (expanded) {
-          for (const line of output.split("\n")) {
-            text += `\n${theme.fg("dim", line)}`;
-          }
-        }
-
-        return new Text(text, 0, 0);
-      },
+      ...shellRenders(zh.tools.bash),
     });
 
     // edit
-    const originalEdit = createEditTool(cwd);
     pi.registerTool({
-      ...originalEdit,
+      ...createEditTool(cwd),
       label: zh.tools.edit.label,
       renderShell: "self",
 
-      renderCall(args: any, theme: any, _context: any) {
+      renderCall(args: any, theme: any) {
         let text = theme.fg("toolTitle", theme.bold(zh.tools.edit.title));
         text += theme.fg("accent", args.path);
         return new Text(text, 0, 0);
@@ -529,25 +655,20 @@ export default function (pi: ExtensionAPI) {
         result: any,
         { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
         theme: any,
-        _context: any,
       ) {
-        if (isPartial)
-          return new Text(theme.fg("warning", zh.tools.edit.editing), 0, 0);
+        if (isPartial) return notePartial(zh.tools.edit.editing, theme);
+
+        const err = errorFirstLine(result, theme);
+        if (err) return err;
 
         const details = result.details as EditToolDetails | undefined;
-        const content = result.content[0];
-
-        if (content?.type === "text" && content.text.startsWith("Error")) {
-          return new Text(theme.fg("error", content.text.split("\n")[0]), 0, 0);
-        }
         if (!details?.diff) {
           return new Text(theme.fg("success", zh.tools.edit.applied), 0, 0);
         }
 
-        const diffLines: string[] = details.diff.split("\n");
         let additions = 0,
           removals = 0;
-        for (const line of diffLines) {
+        for (const line of details.diff.split("\n")) {
           if (line.startsWith("+") && !line.startsWith("+++")) additions++;
           if (line.startsWith("-") && !line.startsWith("---")) removals++;
         }
@@ -556,23 +677,20 @@ export default function (pi: ExtensionAPI) {
         text += theme.fg("dim", " / ");
         text += theme.fg("error", zh.tools.edit.removals(removals));
 
-        if (expanded) {
-          for (const line of diffLines) {
-            text += `\n${theme.fg("dim", line)}`;
-          }
-        }
-
-        return new Text(text, 0, 0);
+        return new Text(
+          withExpanded(expanded ? details.diff : "", text, theme),
+          0,
+          0,
+        );
       },
     });
 
     // write
-    const originalWrite = createWriteTool(cwd);
     pi.registerTool({
-      ...originalWrite,
+      ...createWriteTool(cwd),
       label: zh.tools.write.label,
 
-      renderCall(args: any, theme: any, _context: any) {
+      renderCall(args: any, theme: any) {
         let text = theme.fg("toolTitle", theme.bold(zh.tools.write.title));
         text += theme.fg("accent", args.path);
         const lineCount = String(args.content).split("\n").length;
@@ -580,31 +698,21 @@ export default function (pi: ExtensionAPI) {
         return new Text(text, 0, 0);
       },
 
-      renderResult(
-        result: any,
-        { isPartial }: { isPartial: boolean },
-        theme: any,
-        _context: any,
-      ) {
-        if (isPartial)
-          return new Text(theme.fg("warning", zh.tools.write.writing), 0, 0);
-
-        const content = result.content[0];
-        if (content?.type === "text" && content.text.startsWith("Error")) {
-          return new Text(theme.fg("error", content.text.split("\n")[0]), 0, 0);
-        }
-
+      renderResult(result: any, { isPartial }: { isPartial: boolean }, theme: any) {
+        if (isPartial) return notePartial(zh.tools.write.writing, theme);
+        const err = errorFirstLine(result, theme);
+        if (err) return err;
         return new Text(theme.fg("success", zh.tools.write.written), 0, 0);
       },
     });
 
+    // grep / find / ls：调用渲染各自略有差异，结果渲染走同一个计数模板。
     if (builtinTools.has("grep")) {
-      const originalGrep = createGrepTool(cwd);
       pi.registerTool({
-        ...originalGrep,
+        ...createGrepTool(cwd),
         label: zh.tools.grep.label,
 
-        renderCall(args: any, theme: any, _context: any) {
+        renderCall(args: any, theme: any) {
           let text = theme.fg("toolTitle", theme.bold(zh.tools.grep.title));
           text += theme.fg("accent", args.pattern);
           if (args.path) text += theme.fg("dim", ` · ${args.path}`);
@@ -612,214 +720,76 @@ export default function (pi: ExtensionAPI) {
           return new Text(text, 0, 0);
         },
 
-        renderResult(
-          result: any,
-          { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
-          theme: any,
-          _context: any,
-        ) {
-          if (isPartial)
-            return new Text(theme.fg("warning", zh.tools.grep.searching), 0, 0);
-
-          const details = result.details as GrepToolDetails | undefined;
-          const content = result.content[0];
-          const output = content?.type === "text" ? content.text : "";
-          const noMatches = output === "No matches found";
-          const count = output
-            .split("\n")
-            .filter((line: string) => line.trim()).length;
-          let text = theme.fg(
-            noMatches ? "muted" : "success",
-            noMatches ? zh.tools.grep.noMatches : zh.tools.grep.matches(count),
-          );
-          if (details?.matchLimitReached !== undefined) {
-            text += theme.fg(
-              "warning",
-              zh.tools.grep.matchLimit(details.matchLimitReached),
-            );
-          }
-          if (details?.linesTruncated || details?.truncation?.truncated) {
-            text += theme.fg("warning", zh.tools.grep.truncated);
-          }
-          if (expanded && output) {
-            const expandedOutput = noMatches ? zh.tools.grep.noMatches : output;
-            text += `\n${theme.fg("dim", expandedOutput)}`;
-          }
-          return new Text(text, 0, 0);
-        },
+        renderResult: countResultRender(
+          {
+            searching: zh.tools.grep.searching,
+            noMatch: zh.tools.grep.noMatches,
+            found: zh.tools.grep.matches,
+            limit: zh.tools.grep.matchLimit,
+            truncated: zh.tools.grep.truncated,
+          },
+          "No matches found",
+          "matchLimitReached",
+        ),
       });
     }
 
     if (builtinTools.has("find")) {
-      const originalFind = createFindTool(cwd);
       pi.registerTool({
-        ...originalFind,
+        ...createFindTool(cwd),
         label: zh.tools.find.label,
 
-        renderCall(args: any, theme: any, _context: any) {
+        renderCall(args: any, theme: any) {
           let text = theme.fg("toolTitle", theme.bold(zh.tools.find.title));
           text += theme.fg("accent", args.pattern);
           if (args.path) text += theme.fg("dim", ` · ${args.path}`);
           return new Text(text, 0, 0);
         },
 
-        renderResult(
-          result: any,
-          { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
-          theme: any,
-          _context: any,
-        ) {
-          if (isPartial)
-            return new Text(theme.fg("warning", zh.tools.find.searching), 0, 0);
-
-          const details = result.details as FindToolDetails | undefined;
-          const content = result.content[0];
-          const output = content?.type === "text" ? content.text : "";
-          const noFiles = output === "No files found matching pattern";
-          const count = output
-            .split("\n")
-            .filter((line: string) => line.trim()).length;
-          let text = theme.fg(
-            noFiles ? "muted" : "success",
-            noFiles ? zh.tools.find.noFiles : zh.tools.find.results(count),
-          );
-          if (details?.resultLimitReached !== undefined) {
-            text += theme.fg(
-              "warning",
-              zh.tools.find.resultLimit(details.resultLimitReached),
-            );
-          }
-          if (details?.truncation?.truncated) {
-            text += theme.fg("warning", zh.tools.grep.truncated);
-          }
-          if (expanded && output) {
-            const expandedOutput = noFiles ? zh.tools.find.noFiles : output;
-            text += `\n${theme.fg("dim", expandedOutput)}`;
-          }
-          return new Text(text, 0, 0);
-        },
+        renderResult: countResultRender(
+          {
+            searching: zh.tools.find.searching,
+            noMatch: zh.tools.find.noFiles,
+            found: zh.tools.find.results,
+            limit: zh.tools.find.resultLimit,
+            truncated: zh.tools.grep.truncated,
+          },
+          "No files found matching pattern",
+          "resultLimitReached",
+        ),
       });
     }
 
     if (builtinTools.has("ls")) {
-      const originalLs = createLsTool(cwd);
       pi.registerTool({
-        ...originalLs,
+        ...createLsTool(cwd),
         label: zh.tools.ls.label,
 
-        renderCall(args: any, theme: any, _context: any) {
+        renderCall(args: any, theme: any) {
           let text = theme.fg("toolTitle", theme.bold(zh.tools.ls.title));
           text += theme.fg("accent", args.path || ".");
           return new Text(text, 0, 0);
         },
 
-        renderResult(
-          result: any,
-          { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
-          theme: any,
-          _context: any,
-        ) {
-          if (isPartial)
-            return new Text(theme.fg("warning", zh.tools.ls.listing), 0, 0);
-
-          const details = result.details as LsToolDetails | undefined;
-          const content = result.content[0];
-          const output = content?.type === "text" ? content.text : "";
-          const empty = output === "(empty directory)";
-          const count = output
-            .split("\n")
-            .filter((line: string) => line.trim()).length;
-          let text = theme.fg(
-            empty ? "muted" : "success",
-            empty ? zh.tools.ls.empty : zh.tools.ls.entries(count),
-          );
-          if (details?.entryLimitReached !== undefined) {
-            text += theme.fg(
-              "warning",
-              zh.tools.ls.entryLimit(details.entryLimitReached),
-            );
-          }
-          if (details?.truncation?.truncated) {
-            text += theme.fg("warning", zh.tools.grep.truncated);
-          }
-          if (expanded && output) {
-            const expandedOutput = empty ? zh.tools.ls.empty : output;
-            text += `\n${theme.fg("dim", expandedOutput)}`;
-          }
-          return new Text(text, 0, 0);
-        },
+        renderResult: countResultRender(
+          {
+            searching: zh.tools.ls.listing,
+            noMatch: zh.tools.ls.empty,
+            found: zh.tools.ls.entries,
+            limit: zh.tools.ls.entryLimit,
+            truncated: zh.tools.grep.truncated,
+          },
+          "(empty directory)",
+          "entryLimitReached",
+        ),
       });
     }
 
     if (builtinTools.has("powershell")) {
-      const originalPowerShell = createPowerShellTool(cwd);
       pi.registerTool({
-        ...originalPowerShell,
+        ...createPowerShellTool(cwd),
         label: zh.tools.powershell.label,
-
-        renderCall(args: any, theme: any, _context: any) {
-          let text = theme.fg(
-            "toolTitle",
-            theme.bold(zh.tools.powershell.title),
-          );
-          const command =
-            args.command.length > 80
-              ? `${args.command.slice(0, 77)}...`
-              : args.command;
-          text += theme.fg("accent", command);
-          if (args.timeout) {
-            text += theme.fg("dim", zh.tools.powershell.timeout(args.timeout));
-          }
-          return new Text(text, 0, 0);
-        },
-
-        renderResult(
-          result: any,
-          { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
-          theme: any,
-          _context: any,
-        ) {
-          if (isPartial)
-            return new Text(
-              theme.fg("warning", zh.tools.powershell.running),
-              0,
-              0,
-            );
-
-          const details = result.details as PowerShellToolDetails | undefined;
-          const content = result.content[0];
-          const output = content?.type === "text" ? content.text : "";
-          const exitMatch = output.match(
-            /(?:exit code:\s*|command exited with code\s+)(\d+)/i,
-          );
-          const exitCode = exitMatch ? parseInt(exitMatch[1], 10) : null;
-          const failed =
-            exitCode !== null ||
-            /^error\b/i.test(output) ||
-            /only available on windows/i.test(output) ||
-            /\n\ncommand (?:timed out|was aborted|failed)/i.test(output);
-          const lineCount = output
-            .split("\n")
-            .filter((line: string) => line.trim()).length;
-          let text = theme.fg(
-            failed ? "error" : "success",
-            failed
-              ? exitCode !== null
-                ? zh.tools.powershell.exit(exitCode)
-                : zh.tools.powershell.failed
-              : zh.tools.powershell.done,
-          );
-          text += theme.fg("dim", ` (${zh.tools.powershell.lines(lineCount)})`);
-          if (details?.truncation?.truncated) {
-            text += theme.fg("warning", ` ${zh.tools.powershell.truncated}`);
-          }
-          if (expanded) {
-            for (const line of output.split("\n")) {
-              text += `\n${theme.fg("dim", line)}`;
-            }
-          }
-          return new Text(text, 0, 0);
-        },
+        ...shellRenders(zh.tools.powershell, [/only available on windows/i]),
       });
     }
 

@@ -124,6 +124,45 @@ export const zh = {
       truncated: "[输出过长，已截断]",
     },
   },
+
+  // 项目信任弹窗（复刻内置“信任/不信任”选项；“信任父文件夹”变体不支持）
+  trust: {
+    title: (cwd: string) =>
+      `是否信任项目目录：${cwd}？将允许 pi 加载项目配置并执行项目扩展`,
+    options: {
+      trustAndRemember: "信任并记住此决定",
+      trustSessionOnly: "仅本次会话信任",
+      distrustAndRemember: "不信任并记住此决定",
+      distrustSessionOnly: "本次会话不信任",
+    },
+  },
+
+  // 内置斜杠命令的中文描述（key 为命令名；带参数提示的条目已按 core 的
+  // `hint — description` 合成格式写好，避免运行时拼字符串）
+  builtinCommands: {
+    settings: "打开设置菜单",
+    model: "<provider/model> — 选择模型（打开选择器界面）",
+    tree: "浏览会话树（切换分支）",
+    thinking: "<level> — 设置思考等级",
+    "scoped-models": "启用/停用 Ctrl+P 轮换用的模型",
+    export: "导出会话（默认 HTML，可指定 .html/.jsonl 路径）",
+    import: "从 JSONL 文件导入并恢复会话",
+    share: "通过 GitHub 私密 gist 分享会话",
+    copy: "复制最后一条助手消息到剪贴板",
+    name: "设置会话显示名称",
+    session: "显示会话信息与统计",
+    changelog: "显示更新日志",
+    hotkeys: "显示全部快捷键",
+    fork: "从历史用户消息创建新分叉",
+    clone: "在当前位置复制当前会话",
+    trust: "保存项目信任决定以便后续会话使用",
+    login: "<provider> — 配置提供商认证",
+    logout: "移除提供商认证",
+    new: "开始新会话",
+    compact: "手动压缩会话上下文",
+    resume: "恢复另一个会话",
+    reload: "重新加载快捷键、扩展、技能、提示词、主题和上下文文件",
+    quit: "退出 pi",
+  },
 } as const;
 
-export type Zh = typeof zh;
