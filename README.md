@@ -49,7 +49,7 @@ pi list
 
 ```bash
 npm install          # 安装 devDependencies（含 peer 自动安装）
-npm exec tsc -p tsconfig.json   # 类型检查
+./node_modules/.bin/tsc -p .   # 类型检查
 
 # 本地试跑
 pi --no-session -e ./extensions/index.ts -p "hi"

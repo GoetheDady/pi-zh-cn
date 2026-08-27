@@ -77,8 +77,18 @@ export default function (pi: ExtensionAPI) {
             ),
             rawKeyHint("/", zh.header.commands),
             rawKeyHint("!", "bash"),
+            keyHint("app.tools.expand", zh.header.more),
           ].join(theme.fg("muted", " · "));
-          return [logo, compact, "", theme.fg("dim", zh.header.onboarding)];
+          return [
+            logo,
+            compact,
+            theme.fg(
+              "dim",
+              `${zh.header.expandHelp} (${keyText("app.tools.expand")})`,
+            ),
+            "",
+            theme.fg("dim", zh.header.onboarding),
+          ];
         },
         invalidate() {},
       }));

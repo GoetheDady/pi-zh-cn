@@ -44,6 +44,8 @@ export const zh = {
     interrupt: "中断",
     clearExit: "清空/退出",
     commands: "命令菜单",
+    more: "更多",
+    expandHelp: "按下上述按键查看完整启动帮助与已加载资源",
     onboarding:
       "Pi 能解释自身的功能、查阅自己的文档——想知道怎么用、怎么扩展，直接问它。",
   },
