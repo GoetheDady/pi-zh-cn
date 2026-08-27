@@ -42,7 +42,7 @@ import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { zh } from "./i18n.ts";
+import { zh } from "./zh.ts";
 
 export default function (pi: ExtensionAPI) {
   let toggleFooter: (() => void) | undefined;
