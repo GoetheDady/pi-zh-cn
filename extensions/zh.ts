@@ -5,6 +5,15 @@
  * 工具 description（发给模型的）保持英文原文，避免影响模型行为。
  */
 
+/**
+ * 汉化文案表（全部界面文案的单一来源）。
+ *
+ * 只包含通过扩展 API 能覆盖的界面文案；工具 description（发给模型的）
+ * 保持英文原文，避免影响模型行为。各文件按需取用：
+ * - `footer.*` → footer.ts　`header.*` → header.ts
+ * - `tools.*` → localized-tools.ts / tool-renders.ts
+ * - `trust.*` → trust.ts　`builtinCommands` → ui-copy.ts
+ */
 export const zh = {
   // 流式加载提示（默认 "Working..."，工具执行时也会显示）
   workingMessage: "正在处理…",
