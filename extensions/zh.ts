@@ -134,10 +134,11 @@ export const zh = {
     },
   },
 
-  // 项目信任弹窗（复刻内置“信任/不信任”选项；“信任父文件夹”变体不支持）
+  // 项目信任弹窗（复刻内置全部选项；「信任父文件夹」由扩展直接写 trust.json）
   trust: {
     title: (cwd: string) =>
-      `是否信任项目目录：${cwd}？将允许 pi 加载项目配置并执行项目扩展`,
+      `是否信任项目目录：${cwd}？\n将允许 pi 加载 .pi 配置与资源、安装项目缺失的包、执行项目扩展`,
+    trustParent: (parent: string) => `信任父文件夹（${parent}）`,
     options: {
       trustAndRemember: "信任并记住此决定",
       trustSessionOnly: "仅本次会话信任",

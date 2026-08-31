@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1（2026-08-31）
+
+- 信任弹窗补齐「信任父文件夹」选项：直接按内置语义写 trust.json（父目录 = 信任、清除本目录记录），返回值不带 `remember` 让 core 不再写本目录
+- 信任弹窗标题补全内置说明（加载 .pi 配置与资源、安装项目缺失的包、执行项目扩展）
+
 ## 0.1.0（2026-08-25）
 
 - 首发：简体中文 TUI 汉化插件
@@ -24,3 +29,4 @@ pi 升级后需核对（对比 `node_modules/@earendil-works/pi-coding-agent/dis
 - 内置 header 的 compact 行结构是否有新增提示项
 - footer 统计行顺序与订阅判断逻辑
 - 工具 details 字段（truncation、matchLimit 等）是否变化
+- trust.json 读写语义与格式（`dist/core/trust-manager.js`：realpath 键、null = 删键、键排序、2 空格缩进、结尾换行）
