@@ -6,6 +6,7 @@
     "type": "git",
     "url": "git+https://github.com/GoetheDady/pi-zh-cn.git"
   },
+  "license": "MIT",
   "type": "module",
   "keywords": [
     "pi-package",
