@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2（2026-08-31）
+
+- 添加 MIT License（与上游 pi 一致），package.json 补充 `license` 字段
+- 规范化 README：徽章、特性提炼、安装/卸载/临时切英文分节、已知局限与升级核对项独立成章
+- package.json 补充 `repository` 字段
+- 无功能性改动，不涉及文案更新
+
 ## 0.2.1（2026-08-31）
 
 - 信任弹窗补齐「信任父文件夹」选项：直接按内置语义写 trust.json（父目录 = 信任、清除本目录记录），返回值不带 `remember` 让 core 不再写本目录
