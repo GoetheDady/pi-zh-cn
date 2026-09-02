@@ -63,14 +63,20 @@ pi --no-session -e ./extensions/index.ts -p "hi"
 
 所有文案都集中在 [`extensions/zh.ts`](extensions/zh.ts)，想改词只动这一个文件就够了。
 
-### 升级 pi 后的核对项
+### 上游兼容性测试（契约测试）
 
-对比 `node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/`：
+汉化依赖 pi 内部结构（footer 统计行、工具 details 字段、trust.json 语义、
+斜杠命令清单等），上游一变就可能静默失效。`test/` 下的契约测试把这些
+依赖点逐条断言：实际执行内置工具、实例化 `ProjectTrustStore`、探查内置
+footer 的 dist 源码，任一结构变化都会失败并指明该核对哪个文案。
 
-- 内置 header 的 compact 行结构是否有新增提示项
-- footer 统计行顺序与订阅判断逻辑
-- 工具 details 字段（truncation、matchLimit 等）是否变化
-- trust.json 读写语义与格式（`dist/core/trust-manager.js`：realpath 键、null = 删键、键排序、2 空格缩进、结尾换行）
+```bash
+npm test   # tsc 类型检查 + 全部测试
+```
+
+CI 在每次 push/PR 时运行，并每周一定时跑一次「上游金丝雀」：因为 peer
+依赖是 `*`，定时任务会拉到最新版 pi，上游发布后一周内即可自动暴露兼容
+性问题，不用等用户反馈。
 
 ## 反馈
 
