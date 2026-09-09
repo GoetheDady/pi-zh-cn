@@ -50,6 +50,7 @@ pi remove npm:pi-zh-cn
 ## 已知局限
 
 - 内置菜单和其他硬编码在 pi 源码里的英文保持原样——扩展 API 够不到，除非 fork 上游重编译，不值得
+- 实验性的全屏模式（`tuiMode: "fullscreen"`）文案写死在 pi-tui 里，同样够不到，例如 pi 0.85.0 新增的 `↓ Jump to latest message · <键位>`，以及搜索框的 `Find in transcript` / `No matches`
 
 ## 开发
 
