@@ -16,12 +16,15 @@ import { join } from "node:path";
 import {
   createBashTool,
   createEditTool,
+  createEditToolDefinition,
   createFindTool,
   createGrepTool,
   createLsTool,
   createReadTool,
   createWriteTool,
+  initTheme,
 } from "@earendil-works/pi-coding-agent";
+import { registerLocalizedTools } from "../extensions/localized-tools.ts";
 
 /** 建一个带样例文件的临时项目目录，测试结束后清理。 */
 function tmpProject(): string {
@@ -99,6 +102,102 @@ test("edit：成功结果带 details.diff（+/- 行），供增删行统计", as
     assert.equal(typeof diff, "string", `details.diff 缺失：${JSON.stringify(result.details)}`);
     assert.ok(diff.split("\n").some((l: string) => l.startsWith("+")), "diff 应含 + 行");
     assert.ok(diff.split("\n").some((l: string) => l.startsWith("-")), "diff 应含 - 行");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** 注册全部汉化工具，返回 name → 工具定义。 */
+function registerAll(dir: string): Map<string, any> {
+  const names = ["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"];
+  const defs = new Map<string, any>();
+  registerLocalizedTools(
+    {
+      getActiveTools: () => names,
+      getAllTools: () => names.map((name) => ({ name, sourceInfo: { source: "builtin" } })),
+      setActiveTools: () => {},
+      registerTool: (def: any) => defs.set(def.name, def),
+    } as any,
+    dir,
+  );
+  return defs;
+}
+
+/** 只透传文字的假 theme：渲染测试不关心颜色。 */
+const plainTheme = {
+  fg: (_color: string, text: string) => text,
+  bg: (_color: string, text: string) => text,
+  bold: (text: string) => text,
+  inverse: (text: string) => text,
+} as any;
+
+/** 只填渲染所需字段的假 ToolRenderContext。 */
+const renderCtx = (args: any, dir: string, expanded = false) =>
+  ({
+    args,
+    state: {},
+    lastComponent: undefined,
+    cwd: dir,
+    isError: false,
+    expanded,
+    isPartial: false,
+    showImages: false,
+    argsComplete: true,
+    toolCallId: "render-test",
+    executionStarted: true,
+    invalidate: () => {},
+  }) as any;
+
+test("edit：折叠态回落内置 diff 渲染（本地化不吞掉改动内容）", async () => {
+  const dir = tmpProject();
+  try {
+    // 内置 diff 渲染读全局 theme 单例，未初始化会抛错。
+    initTheme("dark");
+
+    const plugin = registerAll(dir).get("edit");
+    const builtIn = createEditToolDefinition(dir);
+    assert.equal(
+      plugin.renderResult,
+      undefined,
+      "插件覆盖了 edit 的 renderResult，折叠态会看不到 diff",
+    );
+    // ToolExecutionComponent 的解析顺序：插件 renderResult ?? 内置 renderResult
+    const renderResult = builtIn.renderResult!;
+
+    const args = { path: "sample.txt", edits: [{ oldText: "beta", newText: "beta2" }] };
+    const result = await run(plugin, args);
+    const out = renderResult(
+      result,
+      { expanded: false, isPartial: false },
+      plainTheme,
+      renderCtx(args, dir),
+    )
+      .render(80)
+      .join("\n");
+
+    assert.match(out, /-2 beta/, `折叠态应含删除行，实际渲染：\n${out}`);
+    assert.match(out, /\+2 beta2/, `折叠态应含新增行，实际渲染：\n${out}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("write：renderCall 预览文件内容（折叠 10 行 + 中文展开提示，展开全量）", () => {
+  const dir = tmpProject();
+  try {
+    initTheme("dark");
+    const plugin = registerAll(dir).get("write");
+    const content = Array.from({ length: 15 }, (_, i) => `line${i}`).join("\n");
+    const args = { path: "sample.txt", content };
+
+    const collapsed = plugin.renderCall(args, plainTheme, renderCtx(args, dir)).render(120).join("\n");
+    assert.match(collapsed, /line0/, `折叠态应预览内容，实际渲染：\n${collapsed}`);
+    assert.doesNotMatch(collapsed, /line14/, `折叠态不应显示第 11 行以后，实际渲染：\n${collapsed}`);
+    assert.match(collapsed, /还有 5 行，共 15 行/, `折叠态应提示剩余行数，实际渲染：\n${collapsed}`);
+    assert.match(collapsed, /展开/, `展开提示应为中文，实际渲染：\n${collapsed}`);
+
+    const expanded = plugin.renderCall(args, plainTheme, renderCtx(args, dir, true)).render(120).join("\n");
+    assert.match(expanded, /line14/, `展开态应显示全部行，实际渲染：\n${expanded}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

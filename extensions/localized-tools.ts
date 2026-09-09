@@ -13,19 +13,23 @@ import {
   createPowerShellTool,
   createReadTool,
   createWriteTool,
+  getLanguageFromPath,
+  highlightCode,
+  keyHint,
   type BashToolDetails,
-  type EditToolDetails,
   type ReadToolDetails,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { zh } from "./zh.ts";
 import {
   countResultRender,
-  errorFirstLine,
   notePartial,
   shellRenders,
   withExpanded,
 } from "./tool-renders.ts";
+
+/** write 工具折叠态预览的行数（与内置 write 渲染器一致）。 */
+const WRITE_PREVIEW_LINES = 10;
 
 /**
  * 重注册所有内置工具的中文渲染。
@@ -118,38 +122,7 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
       return new Text(text, 0, 0);
     },
 
-    renderResult(
-      result: any,
-      { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
-      theme: any,
-    ) {
-      if (isPartial) return notePartial(zh.tools.edit.editing, theme);
-
-      const err = errorFirstLine(result, theme);
-      if (err) return err;
-
-      const details = result.details as EditToolDetails | undefined;
-      if (!details?.diff) {
-        return new Text(theme.fg("success", zh.tools.edit.applied), 0, 0);
-      }
-
-      let additions = 0,
-        removals = 0;
-      for (const line of details.diff.split("\n")) {
-        if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-        if (line.startsWith("-") && !line.startsWith("---")) removals++;
-      }
-
-      let text = theme.fg("success", zh.tools.edit.additions(additions));
-      text += theme.fg("dim", " / ");
-      text += theme.fg("error", zh.tools.edit.removals(removals));
-
-      return new Text(
-        withExpanded(expanded ? details.diff : "", text, theme),
-        0,
-        0,
-      );
-    },
+    // 不覆盖 renderResult：沿用内置渲染器（行号 + 红绿 + 词级高亮的 diff）。
   });
 
   // write
@@ -157,20 +130,38 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
     ...createWriteTool(cwd),
     label: zh.tools.write.label,
 
-    renderCall(args: any, theme: any) {
+    renderCall(args: any, theme: any, context: any) {
+      const rawLines = String(args.content ?? "")
+        .replace(/\r/g, "")
+        .replace(/\t/g, "   ")
+        .split("\n");
+      let end = rawLines.length;
+      while (end > 0 && rawLines[end - 1] === "") end--;
+
       let text = theme.fg("toolTitle", theme.bold(zh.tools.write.title));
       text += theme.fg("accent", args.path);
-      const lineCount = String(args.content).split("\n").length;
-      text += theme.fg("dim", ` (${zh.tools.write.lines(lineCount)})`);
+      text += theme.fg("dim", ` (${zh.tools.write.lines(end)})`);
+
+      if (end > 0) {
+        const maxLines = context.expanded ? end : WRITE_PREVIEW_LINES;
+        const lang = args.path ? getLanguageFromPath(args.path) : undefined;
+        // ponytail: 只高亮预览到的行，大文件折叠态不跑全量高亮；跨行语法
+        // （块注释等）在预览边界可能染色偏移，需要精确时改全量高亮 + 增量缓存
+        // （上游 write.js 的做法）。
+        text += `\n\n${highlightCode(rawLines.slice(0, maxLines).join("\n"), lang).join("\n")}`;
+        if (end > maxLines) {
+          text += theme.fg(
+            "muted",
+            `\n${zh.tools.write.moreLines(end - maxLines, end)}`,
+          );
+          text += keyHint("app.tools.expand", zh.tools.write.expand);
+          text += theme.fg("muted", "）");
+        }
+      }
       return new Text(text, 0, 0);
     },
 
-    renderResult(result: any, { isPartial }: { isPartial: boolean }, theme: any) {
-      if (isPartial) return notePartial(zh.tools.write.writing, theme);
-      const err = errorFirstLine(result, theme);
-      if (err) return err;
-      return new Text(theme.fg("success", zh.tools.write.written), 0, 0);
-    },
+    // 不覆盖 renderResult：沿用内置渲染器（成功时不追加内容，出错时显示完整错误）。
   });
 
   // grep / find / ls：调用渲染各自略有差异，结果渲染走同一个计数模板。

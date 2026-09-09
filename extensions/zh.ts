@@ -95,6 +95,9 @@ export const zh = {
       writing: "写入中…",
       written: "已写入",
       lines: (n: number) => `${n} 行`,
+      moreLines: (remaining: number, total: number) =>
+        `…（还有 ${remaining} 行，共 ${total} 行，`,
+      expand: "展开",
     },
     grep: {
       label: "搜索内容",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4（2026-09-09）
+
+- 修复 `edit` 折叠态看不到改动内容：不再覆盖 `renderResult`，回落内置 diff 渲染器（行号 + 红绿 +/- + 词级高亮）；中文标题保留在 `renderCall`
+- `write` 折叠态补上文件内容预览（语法高亮 10 行 + 中文展开提示），展开态显示全量；只高亮预览到的行，大文件不跑全量高亮
+- 新增两例渲染回归测试：`edit` 折叠态必含 diff 行、`write` 预览行数与展开提示
+
 ## 0.2.2（2026-08-31）
 
 - 添加 MIT License（与上游 pi 一致），package.json 补充 `license` 字段
@@ -36,4 +42,5 @@ pi 升级后需核对（对比 `node_modules/@earendil-works/pi-coding-agent/dis
 - 内置 header 的 compact 行结构是否有新增提示项
 - footer 统计行顺序与订阅判断逻辑
 - 工具 details 字段（truncation、matchLimit 等）是否变化
+- `ToolExecutionComponent` 的渲染器回落逻辑（`dist/modes/interactive/components/tool-execution.js`：插件 `renderResult ??` 内置 `renderResult`）——汉化只覆盖 `renderCall` 就是靠它拿到内置 diff / 内容预览
 - trust.json 读写语义与格式（`dist/core/trust-manager.js`：realpath 键、null = 删键、键排序、2 空格缩进、结尾换行）

@@ -22,15 +22,6 @@ export const countNonEmpty = (s: string): number =>
 export const notePartial = (msg: string, theme: any): Text =>
   new Text(theme.fg("warning", msg), 0, 0);
 
-// 错误结果：内容以 "Error" 开头时只展示首行（edit/write 共用）。
-/** 展示错误首行（红色）；结果不是错误时返回 undefined。 */
-export const errorFirstLine = (result: any, theme: any): Text | undefined => {
-  const out = textOf(result);
-  return out.startsWith("Error")
-    ? new Text(theme.fg("error", out.split("\n")[0]), 0, 0)
-    : undefined;
-};
-
 // 展开态：在摘要后追加逐行弱化的原始输出。
 /**
  * 组装展开态文本：raw 为空时返回 summary，否则在 summary 之后
