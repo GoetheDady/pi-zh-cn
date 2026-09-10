@@ -84,7 +84,7 @@ CI 在每次 push/PR 时运行，并每两天定时跑一次「上游金丝雀�
 
 pi 大版本升级后如果出现错位或残留英文，欢迎[提 issue](https://github.com/GoetheDady/pi-zh-cn/issues)。
 
-改动记录见 [CHANGELOG.md](CHANGELOG.md)。
+改动记录见 [GitHub Releases](https://github.com/GoetheDady/pi-zh-cn/releases)。
 
 ## License
 
