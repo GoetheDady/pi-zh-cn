@@ -1,0 +1,38 @@
+name: Publish
+
+# 发版：改完 package.json 的 version 后打 tag 推上来，这条流水线自动核对、
+# 测试、发布。认证走 npm Trusted Publishing（OIDC），仓库里不需要放
+# NPM_TOKEN——那个 token 一旦过期就会卡住发版（2026-09-10 就卡过一次）。
+#
+# 前提：npmjs.com 上已把本仓库配成该包的 Trusted Publisher（一次性设置）。
+# 未配置时会在 publish 步骤失败，其它步骤先过，此时退回本地 npm publish 即可。
+#
+# 要求 npm CLI >= 11.5.1（支持 OIDC）；node 24 自带的 npm 是 11.17+。
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # 换取一次性发布凭据，仅此一步需要
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      # 防止 tag 与 package.json 版本不一致时把错的版本发出去（npm 不允许重发同版本）
+      - name: 校验 tag 与 package.json 版本一致
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          echo "tag=$GITHUB_REF_NAME  期望=$want"
+          [ "$want" = "$GITHUB_REF_NAME" ] || {
+            echo "::error::tag $GITHUB_REF_NAME 与 package.json 版本 $want 不一致"
+            exit 1
+          }
+      - run: npm test
+      - run: npm publish
