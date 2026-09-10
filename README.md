@@ -92,22 +92,9 @@ CI 在每次 push/PR 时运行，并每两天定时跑一次「上游金丝雀�
 
 ### 发布
 
-改完 `package.json` 的 `version` 并提交后，打 tag 推上去即可：
-
-```bash
-git tag -a v0.2.6 -m "0.2.6: 一句话说明"
-git push origin v0.2.6
-```
-
-`.github/workflows/publish.yml` 会核对 tag 与版本号、跑一遍测试、发布到 npm
-并生成 provenance。认证走 npm Trusted Publishing（OIDC），仓库里不放
-`NPM_TOKEN`——那种长期 token 一过期就卡住发版。前提是 npmjs.com 上已把本
-仓库配成该包的 Trusted Publisher（一次性）；没配的话 publish 步骤会失败，
-退回本地 `npm login && npm publish` 即可。
-
-GitHub Release 的正文单独写，用 `gh release create v0.2.6 --notes-file …` 建。
-补打历史 tag 时要注意：Release 列表按 **tag 时间**排序，不是按创建时间，
-所以得带上原始时间（`GIT_COMMITTER_DATE=<原始时间> git tag -a …`）。
+推 tag 即发布：流水线会核对版本号、跑测试、发到 npm 并生成 provenance，认证走
+npm Trusted Publishing（OIDC），仓库里没有 `NPM_TOKEN`。完整流程、发完怎么核对、
+报 `ENEEDAUTH` 怎么查，见 **[RELEASING.md](RELEASING.md)**。
 
 ## 反馈
 
