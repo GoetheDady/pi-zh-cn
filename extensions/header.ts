@@ -9,6 +9,7 @@ import {
   VERSION,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { zh } from "./zh.ts";
 
 /**
@@ -36,15 +37,21 @@ export function setChineseHeader(ctx: ExtensionContext) {
         rawKeyHint("!", "bash"),
         keyHint("app.tools.expand", zh.header.more),
       ].join(theme.fg("muted", " · "));
+      // 窄终端时按宽度截断，避免触发 pi 的超宽崩溃检查
+      const w = Math.max(1, _width);
       return [
-        logo,
-        compact,
-        theme.fg(
-          "dim",
-          `${zh.header.expandHelp} (${keyText("app.tools.expand")})`,
+        truncateToWidth(logo, w, ""),
+        truncateToWidth(compact, w, ""),
+        truncateToWidth(
+          theme.fg(
+            "dim",
+            `${zh.header.expandHelp} (${keyText("app.tools.expand")})`,
+          ),
+          w,
+          "",
         ),
         "",
-        theme.fg("dim", zh.header.onboarding),
+        truncateToWidth(theme.fg("dim", zh.header.onboarding), w, ""),
       ];
     },
     invalidate() {},
