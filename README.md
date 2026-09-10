@@ -56,7 +56,7 @@ pi remove npm:pi-zh-cn
 - 每两天：上游金丝雀忽略 lockfile、拉最新版 pi 跑同一套测试
 - 基线本身由 Dependabot 自动开 PR 跟进，它的 PR 就是一次新版兼容性验证，绿了合并即完成升级
 
-需要 Node ≥ 22.19.0（跟随 pi）。
+Node 版本要求跟随 pi，由 pi 自己声明和检查。
 
 ## 已知局限
 
