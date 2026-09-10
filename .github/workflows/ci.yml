@@ -5,8 +5,9 @@ on:
     branches: [main]
   pull_request:
   # 上游金丝雀：pi 发布新版后拉最新实现跑契约测试，失败即说明上游结构
-  # 变化，需核对对应文案。注意 package-lock.json 钉着旧版 pi，定时任务
-  # 必须忽略它，否则永远装不到上游新版（见下方 install 步骤）。
+  # 变化，需核对对应文案。注意 package-lock.json 钉着某个具体版本，定时
+  # 任务必须忽略它，否则永远装不到上游新版（见下方 install 步骤）。
+  # 基线的日常跟进交给 dependabot.yml，它开的 PR 就是一次同样的兼容性验证。
   schedule:
     - cron: "0 3 */2 * *" # 每两天 03:00 UTC（月末按日期取奇偶，间隔可能有 ±1 天浮动）
 
@@ -21,8 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      # 金丝雀（schedule）忽略 lockfile，peerDependencies("*") 才能解析到
-      # 上游最新版；push/PR 仍按 lock 安装，保证可复现。
+      # 金丝雀（schedule）忽略 lockfile：peer 与 dev 依赖的版本范围都不设
+      # 上限，所以能解析到上游最新版；push/PR 仍按 lock 安装，保证可复现。
       - name: 安装依赖
         run: npm install ${{ github.event_name == 'schedule' && '--no-package-lock' || '' }}
       - run: npm test

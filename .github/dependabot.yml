@@ -1,0 +1,18 @@
+# 基线自动跟进：pi 发版很快，靠人工升级 lockfile 必然滞后（0.84.4 卡了整整
+# 一个 minor 才被发现）。这里让 Dependabot 开 PR，PR 的 CI 就是对新版跑一遍
+# 契约测试——绿了合并即完成升级，红了就是兼容性破裂警报。
+#
+# 注意：Dependabot 不认 peerDependencies（dependency-type 里没有 peer），
+# 所以三个 pi 包在 package.json 里同时声明了 devDependencies 才能被它看到。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 5
+    groups:
+      # pi 三个包同步发版，合成一个 PR：分开提会互相踢 lockfile
+      earendil-works:
+        patterns:
+          - "@earendil-works/*"
