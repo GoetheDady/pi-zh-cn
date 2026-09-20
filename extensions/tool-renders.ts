@@ -40,8 +40,8 @@ export const withExpanded = (raw: string, summary: string, theme: any): string =
  *
  * 内置 bash 工具不返回结构化退出码，只能从输出文本推断：匹配
  * 「exit code: N」/「command exited with code N」即失败；以 Error 开头、
- * 或含超时/中止提示也视为失败。powershell 在 Windows 上额外追加平台
- * 提示，通过 extraRe 补充识别。
+ * 或含超时/中止/无退出码提示也视为失败。powershell 在 Windows 上额外
+ * 追加平台提示，通过 extraRe 补充识别。
  *
  * @param output 工具输出的完整文本
  * @param extraRe 额外的失败特征正则（默认无）
@@ -57,7 +57,9 @@ function failureState(output: string, extraRe: RegExp[] = []) {
     failed:
       exitCode !== null ||
       /^error\b/i.test(output) ||
-      /\n\ncommand (?:timed out|was aborted|failed)/i.test(output) ||
+      // 状态串由 appendStatus 拼在输出后（输出为空时位于文本开头，0.86.0
+      // 起新增的「Command terminated without an exit code」就是这个形态）。
+      /(?:^|\n\n)command (?:timed out|was aborted|terminated|failed)/i.test(output) ||
       extraRe.some((re) => re.test(output)),
   };
 }

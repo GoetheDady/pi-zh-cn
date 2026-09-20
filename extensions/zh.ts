@@ -161,6 +161,7 @@ export const zh = {
     export: "导出会话（默认 HTML，可指定 .html/.jsonl 路径）",
     import: "从 JSONL 文件导入并恢复会话",
     share: "通过 GitHub 私密 gist 分享会话",
+    bug: "<description> — 向 Pi 开发者报告问题",
     copy: "复制最后一条助手消息到剪贴板",
     name: "设置会话显示名称",
     session: "显示会话信息与统计",
