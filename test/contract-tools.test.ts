@@ -289,3 +289,34 @@ test("ls：空目录哨兵串与 entryLimitReached 字段", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("bash：无退出码的终止提示判为失败（0.86.0 新增句式）", () => {
+  const dir = tmpProject();
+  try {
+    initTheme("dark");
+    const plugin = registerAll(dir).get("bash");
+    // 上游 appendStatus 把状态串拼在输出之后；输出为空时它位于文本开头。
+    const render = (text: string) =>
+      plugin
+        .renderResult(
+          { content: [{ type: "text", text }], isError: true },
+          { expanded: false, isPartial: false },
+          plainTheme,
+        )
+        .render(120)
+        .join("\n");
+
+    for (const text of [
+      "Command terminated without an exit code",
+      "(no output)\n\nCommand terminated without an exit code",
+    ]) {
+      const out = render(text);
+      assert.match(out, /执行失败/, `无退出码应判为失败，实际渲染：${out}`);
+      assert.doesNotMatch(out, /完成/, `无退出码不应显示完成，实际渲染：${out}`);
+    }
+
+    assert.match(render("hello"), /完成/, "正常输出仍应显示完成");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
