@@ -1,6 +1,6 @@
 {
   "name": "pi-zh-cn",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "pi 编码代理的简体中文界面汉化插件",
   "repository": {
     "type": "git",
@@ -30,9 +30,9 @@
     "@earendil-works/pi-tui": ">=0.84.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": ">=0.85.1",
-    "@earendil-works/pi-coding-agent": ">=0.85.1",
-    "@earendil-works/pi-tui": ">=0.85.1",
+    "@earendil-works/pi-ai": "^0.87.0",
+    "@earendil-works/pi-coding-agent": "^0.87.0",
+    "@earendil-works/pi-tui": "^0.87.0",
     "@types/node": "^26.6.1",
     "typescript": "^7.0.2"
   }
