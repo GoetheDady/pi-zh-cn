@@ -25,6 +25,8 @@ import {
   initTheme,
 } from "@earendil-works/pi-coding-agent";
 import { registerLocalizedTools } from "../extensions/localized-tools.ts";
+import { shellRenders } from "../extensions/tool-renders.ts";
+import { zh } from "../extensions/zh.ts";
 
 /** 建一个带样例文件的临时项目目录，测试结束后清理。 */
 function tmpProject(): string {
@@ -67,24 +69,21 @@ test("read：文本走 content[0].text；超限文件带 truncation.truncated �
   }
 });
 
-test("bash：失败命令抛错，错误文本含「Command exited with code N」句式", async () => {
+test("bash：失败命令标记 isError，错误文本含「Command exited with code N」句式", async () => {
   const dir = tmpProject();
   try {
     const tool = createBashTool(dir);
     const ok = await run(tool, { command: "echo hello" });
     assert.ok(textOf(ok).includes("hello"));
 
-    // tool-renders.ts 的 failureState 靠匹配
-    // /(?:exit code:\s*|command exited with code\s+)(\d+)/i 判定失败，
-    // 上游改错误文案句式时这里报警。
-    await assert.rejects(
-      () => run(tool, { command: "echo boom; exit 3" }),
-      (error: any) => {
-        const text = String(error?.message ?? error);
-        assert.match(text, /command exited with code 3/i);
-        return true;
-      },
-    );
+    // pi 0.99 起非零退出不再抛错，改为 resolve 一个 isError: true 的结果
+    // （超时/中止仍然抛错）。tool-renders.ts 的 failureState 优先读渲染
+    // 上下文的 isError，并靠
+    // /(?:exit code:\s*|command exited with code\s+)(\d+)/i 解析退出码，
+    // 上游改标记或错误文案句式时这里报警。
+    const failed = await run(tool, { command: "echo boom; exit 3" });
+    assert.equal(failed.isError, true, "非零退出应标记 isError");
+    assert.match(textOf(failed), /command exited with code 3/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -147,6 +146,34 @@ const renderCtx = (args: any, dir: string, expanded = false) =>
     executionStarted: true,
     invalidate: () => {},
   }) as any;
+
+test("bash 渲染：只有 isError 标记时也显示中文失败态", () => {
+  // pi 1.x 的非零退出走 isError 通道，文本未必带可解析的退出码句式；
+  // isError 在 renderResult 的第 4 个参数（渲染上下文）上。
+  const { renderResult } = shellRenders(zh.tools.bash) as any;
+  const render = (context: any) =>
+    renderResult(
+      { content: [{ type: "text", text: "boom" }] },
+      { expanded: false, isPartial: false },
+      plainTheme,
+      context,
+    )
+      .render(80)
+      .join("\n");
+  const ctx = renderCtx({ command: "boom" }, process.cwd());
+
+  const failedOut = render({ ...ctx, isError: true });
+  assert.ok(
+    failedOut.includes(zh.tools.bash.failed),
+    `isError 结果应显示「${zh.tools.bash.failed}」，实际：${failedOut}`,
+  );
+  assert.ok(
+    render({ ...ctx, isError: false }).includes(zh.tools.bash.done),
+    "成功结果仍应显示完成态",
+  );
+  // 旧版 pi 不传渲染上下文：退化为文本推断，不能抛错。
+  assert.ok(render(undefined).includes(zh.tools.bash.done));
+});
 
 test("edit：折叠态回落内置 diff 渲染（本地化不吞掉改动内容）", async () => {
   const dir = tmpProject();

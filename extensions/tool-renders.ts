@@ -38,16 +38,23 @@ export const withExpanded = (raw: string, summary: string, theme: any): string =
 /**
  * 判定 shell 命令是否失败。
  *
- * 内置 bash 工具不返回结构化退出码，只能从输出文本推断：匹配
- * 「exit code: N」/「command exited with code N」即失败；以 Error 开头、
+ * 首选渲染上下文的 `isError` 标记：pi 0.99 起内置 bash 非零退出不再抛错，
+ * 改为 resolve 一个 `isError: true` 的结果（0.87 及更早没有该标记，传入
+ * false 即退化为纯文本推断）。文本推断作为兜底，且始终用于解析退出码：
+ * 匹配「exit code: N」/「command exited with code N」；以 Error 开头、
  * 或含超时/中止/无退出码提示也视为失败。powershell 在 Windows 上额外
  * 追加平台提示，通过 extraRe 补充识别。
  *
  * @param output 工具输出的完整文本
+ * @param isError 渲染上下文的 isError 标记（旧版 pi 传 false）
  * @param extraRe 额外的失败特征正则（默认无）
  * @returns exitCode 解析到的退出码（无法解析为 null）；failed 是否视为失败
  */
-function failureState(output: string, extraRe: RegExp[] = []) {
+function failureState(
+  output: string,
+  isError: boolean,
+  extraRe: RegExp[] = [],
+) {
   const m = output.match(
     /(?:exit code:\s*|command exited with code\s+)(\d+)/i,
   );
@@ -55,6 +62,7 @@ function failureState(output: string, extraRe: RegExp[] = []) {
   return {
     exitCode,
     failed:
+      isError ||
       exitCode !== null ||
       /^error\b/i.test(output) ||
       // 状态串由 appendStatus 拼在输出后（输出为空时位于文本开头，0.86.0
@@ -96,10 +104,17 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
       result: any,
       { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
       theme: any,
+      // pi 把 isError 放在第 4 个参数（渲染上下文）上，第 1 个参数只有
+      // content/details；旧版 pi 不传该参数。
+      context?: { isError?: boolean },
     ): Text {
       if (isPartial) return notePartial(w.running, theme);
       const output = textOf(result);
-      const { exitCode, failed } = failureState(output, extraRe);
+      const { exitCode, failed } = failureState(
+        output,
+        context?.isError === true,
+        extraRe,
+      );
       let text = failed
         ? theme.fg(
             "error",
