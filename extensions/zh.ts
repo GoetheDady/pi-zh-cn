@@ -68,7 +68,13 @@ export const zh = {
       imageLoaded: "图片已加载",
       noContent: "无内容",
       lines: (n: number) => `${n} 行`,
-      truncatedFrom: (n: number) => `（共 ${n} 行，仅显示部分）`,
+      // 截断提示按内置 read 渲染器的三种分支分开给。原先只有一句「共 N 行，
+      // 仅显示部分」——首行就超字节上限时并没有「N 行」这回事，那句话是误导。
+      truncatedFirstLine: (limit: string) => `（首行超过 ${limit} 上限）`,
+      truncatedLines: (shown: number, total: number, limit: number) =>
+        `（已显示 ${shown} / 共 ${total} 行，上限 ${limit} 行）`,
+      truncatedBytes: (shown: number, limit: string) =>
+        `（已显示 ${shown} 行，上限 ${limit}）`,
     },
     bash: {
       label: "执行",
