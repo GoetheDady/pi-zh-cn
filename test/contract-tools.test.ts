@@ -278,6 +278,89 @@ test("bash 渲染：最终结果补上耗时，流式与存量结果不显示", 
   assert.ok(!render(ctx).includes("耗时"));
 });
 
+test("bash 渲染：流式显示实时耗时，结果落地后停表", () => {
+  const { renderCall, renderResult } = shellRenders(zh.tools.bash) as any;
+  const state: any = {};
+  const ctx = {
+    ...renderCtx({ command: "sleep 30" }, process.cwd()),
+    state,
+    executionStarted: true,
+    invalidate: () => {},
+  };
+  try {
+    renderCall({ command: "sleep 30" }, plainTheme, ctx);
+    assert.equal(typeof state.startedAt, "number", "renderCall 应起算计时");
+
+    // renderCall 在参数流式阶段就会被反复调用，此时执行还没开始，不该起算。
+    const early: any = {};
+    renderCall({ command: "x" }, plainTheme, {
+      ...ctx,
+      state: early,
+      executionStarted: false,
+    });
+    assert.equal(early.startedAt, undefined, "未开始执行时不应起算");
+
+    const partial = renderResult(
+      { content: [{ type: "text", text: "" }] },
+      { expanded: false, isPartial: true },
+      plainTheme,
+      ctx,
+    )
+      .render(120)
+      .join("\n");
+    assert.ok(
+      partial.includes(zh.tools.bash.running),
+      `流式应显示运行中，实际：${partial}`,
+    );
+    assert.match(partial, /已用 \d/, `流式应显示实时耗时，实际：${partial}`);
+    assert.notEqual(
+      state.interval,
+      undefined,
+      "流式应挂上每秒重绘，否则数字不跳",
+    );
+
+    const done = renderResult(
+      { content: [{ type: "text", text: "ok" }] },
+      { expanded: false, isPartial: false },
+      plainTheme,
+      { ...ctx, durationMs: 2500 },
+    )
+      .render(120)
+      .join("\n");
+    assert.equal(state.interval, undefined, "结果落地后应清掉定时器");
+    assert.ok(
+      done.includes(zh.tools.bash.took("2.5s")),
+      `应显示最终耗时，实际：${done}`,
+    );
+    assert.ok(!done.includes("已用"), "结果落地后不应再显示「已用」");
+  } finally {
+    // 断言中途失败时定时器会漏到测试进程里挂着。
+    if (state.interval !== undefined) clearInterval(state.interval);
+  }
+});
+
+test("bash 渲染：拿不到 durationMs 时用自算耗时兜底，且重绘不继续长", () => {
+  const { renderResult } = shellRenders(zh.tools.bash) as any;
+  // 只有 startedAt（没有结果记录的 durationMs），模拟旧会话的存量结果。
+  const ctx = {
+    ...renderCtx({ command: "x" }, process.cwd()),
+    state: { startedAt: Date.now() - 1500 },
+  };
+  const render = () =>
+    renderResult(
+      { content: [{ type: "text", text: "ok" }] },
+      { expanded: false, isPartial: false },
+      plainTheme,
+      ctx,
+    )
+      .render(120)
+      .join("\n");
+
+  const first = render();
+  assert.match(first, /耗时 1\.[0-9]s/, `应给自算耗时，实际：${first}`);
+  assert.equal(render(), first, "endedAt 冻结后重绘应稳定，数字不该继续长");
+});
+
 test("formatToolDuration：与内置 bash 行的刻度一致（秒 / 分秒 / 时分秒）", () => {
   assert.equal(formatToolDuration(1234), "1.2s");
   assert.equal(formatToolDuration(59_400), "59.4s");

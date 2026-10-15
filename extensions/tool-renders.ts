@@ -94,6 +94,70 @@ type ShellCopy =
   | typeof zh.tools.bash
   | typeof zh.tools.powershell;
 
+/** 计时状态，存在渲染上下文的 state 上（同一工具行的 call/result 共享）。 */
+type ShellTimerState = {
+  startedAt?: number;
+  endedAt?: number;
+  interval?: ReturnType<typeof setInterval>;
+};
+
+/** shell 渲染上下文里本渲染器用到的字段（pi 把它作为第 4 个参数传入）。 */
+type ShellRenderContext = {
+  isError?: boolean;
+  durationMs?: number;
+  executionStarted?: boolean;
+  state?: ShellTimerState;
+  invalidate?: () => void;
+};
+
+/**
+ * 起算计时，对齐上游 render-utils 的 startToolTimer：只在执行真正开始后
+ * 起算，且只算一次（renderCall 会被反复调用）。
+ */
+function startShellTimer(context: ShellRenderContext | undefined): void {
+  const state = context?.state;
+  if (!state || state.startedAt !== undefined) return;
+  if (!context?.executionStarted) return;
+  state.startedAt = Date.now();
+  state.endedAt = undefined;
+}
+
+/**
+ * 计时文案，对齐上游 render-utils 的 toolTimerText：流式中每秒重绘一次刷新
+ * 「已用 X」，结果落地后停表，不再跳秒。
+ *
+ * 最终耗时优先取结果记录的 durationMs（单调，重放与旧会话也准）；拿不到时
+ * 退回自己起算的时间，并用 endedAt 冻住，免得每次重绘数字继续长。
+ *
+ * @param context 渲染上下文
+ * @param isPartial 结果是否仍在流式
+ * @param w 该工具的文案对象
+ */
+function shellTimerText(
+  context: ShellRenderContext | undefined,
+  isPartial: boolean,
+  w: ShellCopy,
+): string {
+  const state = context?.state;
+  if (!state) return "";
+  if (isPartial) {
+    if (state.startedAt === undefined) return "";
+    // 每秒重绘这一行；invalidate 只作用于此工具执行，不整屏重排。
+    state.interval ??= setInterval(() => context?.invalidate?.(), 1000);
+    return w.elapsed(formatToolDuration(Date.now() - state.startedAt));
+  }
+  if (state.interval !== undefined) {
+    clearInterval(state.interval);
+    state.interval = undefined;
+  }
+  if (typeof context?.durationMs === "number") {
+    return w.took(formatToolDuration(context.durationMs));
+  }
+  if (state.startedAt === undefined) return "";
+  state.endedAt ??= Date.now();
+  return w.took(formatToolDuration(state.endedAt - state.startedAt));
+}
+
 /**
  * 剥掉上游追加在结果文本末尾的英文截断脚注（`\n\n[Showing lines 1-2000 of
  * 5000. Full output: /tmp/…]`），返回展示用的文本。
@@ -170,7 +234,8 @@ function truncationNotice(
  */
 export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
   return {
-    renderCall(args: any, theme: any): Text {
+    renderCall(args: any, theme: any, context?: ShellRenderContext): Text {
+      startShellTimer(context);
       let text = theme.fg("toolTitle", theme.bold(w.title));
       const cmd: string =
         args.command.length > 80
@@ -187,9 +252,16 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
       theme: any,
       // pi 把 isError 放在第 4 个参数（渲染上下文）上，第 1 个参数只有
       // content/details；旧版 pi 不传该参数。
-      context?: { isError?: boolean; durationMs?: number },
+      context?: ShellRenderContext,
     ): Text {
-      if (isPartial) return notePartial(w.running, theme);
+      if (isPartial) {
+        // 长命令（构建、装依赖）只看「运行中…」不知道跑了多久，补上实时耗时。
+        const elapsed = shellTimerText(context, true, w);
+        return notePartial(
+          elapsed ? `${w.running} ${elapsed}` : w.running,
+          theme,
+        );
+      }
       const details = result.details as BashToolDetails | undefined;
       const output = stripTruncationFooter(textOf(result), details);
       const { exitCode, failed } = failureState(
@@ -206,14 +278,10 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
       text += theme.fg("dim", ` (${w.lines(countNonEmpty(output))})`);
       const notice = truncationNotice(details, w);
       if (notice) text += theme.fg("warning", ` [${notice}]`);
-      // 内置 shell 行末尾有耗时（Took 1.2s），中文行原本丢了这条。durationMs
-      // 由框架从最终结果填在渲染上下文上（tool-execution.ts），不依赖渲染器
-      // 自己计时，所以这里只覆盖「已完成」那一档；流式中与旧会话的存量结果
-      // 拿不到该值，自然不显示。
-      const durationMs = context?.durationMs;
-      if (!isPartial && typeof durationMs === "number") {
-        text += theme.fg("dim", ` ${w.took(formatToolDuration(durationMs))}`);
-      }
+      // 内置 shell 行末尾有耗时（Took 1.2s），中文行原本丢了这条。顺带停表，
+      // 否则流式阶段起的每秒重绘会一直转下去。
+      const timer = shellTimerText(context, false, w);
+      if (timer) text += theme.fg("dim", ` ${timer}`);
       return new Text(withExpanded(expanded ? output : "", text, theme), 0, 0);
     },
   };
