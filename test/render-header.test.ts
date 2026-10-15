@@ -11,13 +11,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { initTheme, VERSION } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { backgroundAnsi, foregroundAnsi, rgbColor, visibleWidth } from "@earendil-works/pi-tui";
 import { setChineseHeader } from "../extensions/header.ts";
-import { loadDist } from "./helpers.ts";
+import { dist, loadDist } from "./helpers.ts";
 
 // getThemeByName 未从包顶层导出（顶层只有 initTheme 与 Theme 类）。
-const { getThemeByName } = await loadDist<{
+const { getThemeByName, loadThemeFromPath } = await loadDist<{
   getThemeByName: (name: string) => any;
+  loadThemeFromPath: (path: string, mode: "truecolor" | "256color") => any;
 }>("modes/interactive/theme/theme.js");
 
 // keyHint 读全局主题单例，未初始化会抛「Theme not initialized」。
@@ -25,7 +26,7 @@ initTheme("dark");
 const theme = getThemeByName("dark");
 
 /** 跑一次 setChineseHeader，用它注册给 pi 的组件渲染指定宽度。 */
-function renderHeader(width: number): string[] {
+function headerComponent(activeTheme = theme) {
   let factory: any;
   setChineseHeader({
     mode: "tui",
@@ -36,19 +37,81 @@ function renderHeader(width: number): string[] {
     },
   } as any);
   assert.ok(factory, "TUI 模式下应注册 header 渲染器");
-  return factory({}, theme).render(width);
+  return factory({}, activeTheme);
+}
+
+const renderHeader = (width: number) => headerComponent().render(width);
+const plain = (text: string) => text.replace(/\x1b\[[\d;]*m/g, "");
+
+/** 同步渲染测试中模拟终端；结束时恢复平台与环境，避免污染后续测试。 */
+function inTerminal(program: string, run: () => void) {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const previous = process.env.TERM_PROGRAM;
+  Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+  process.env.TERM_PROGRAM = program;
+  try {
+    run();
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    if (previous === undefined) delete process.env.TERM_PROGRAM;
+    else process.env.TERM_PROGRAM = previous;
+  }
 }
 
 test("header：窄终端每行可见宽度不超宽（0.2.5 的崩溃点回归）", () => {
-  // 49 是快捷键行在宽终端下的完整宽度，取它当边界值。
-  for (const width of [1, 2, 10, 21, 40, 49]) {
-    for (const line of renderHeader(width)) {
-      assert.ok(
-        visibleWidth(line) <= width,
-        `宽度 ${width} 下超宽到 ${visibleWidth(line)} 列：${JSON.stringify(line)}`,
-      );
-    }
+  for (const program of ["iTerm.app", "Apple_Terminal"]) {
+    inTerminal(program, () => {
+      for (const width of [1, 2, 3, 4, 5, 10, 21, 40, 49, 120]) {
+        for (const line of renderHeader(width)) {
+          assert.ok(
+            visibleWidth(line) <= width,
+            `${program} 宽度 ${width} 下超宽到 ${visibleWidth(line)} 列：${JSON.stringify(line)}`,
+          );
+        }
+      }
+    });
   }
+});
+
+test("header：像素布局与上游一致，支持明暗主题及两种颜色模式", async () => {
+  const { piLogoLines } = await loadDist<{ piLogoLines: () => string[] }>(
+    "modes/interactive/components/pi-logo.js",
+  );
+  const [top, bottom] = piLogoLines().map(plain);
+  inTerminal("iTerm.app", () => {
+    for (const name of ["dark", "light"]) {
+      for (const mode of ["truecolor", "256color"] as const) {
+        const activeTheme = loadThemeFromPath(dist("modes/interactive/theme", `${name}.json`), mode);
+        const component = headerComponent(activeTheme);
+        const lines = component.render(120);
+        assert.equal(plain(lines[0]), `${top} v${VERSION}`);
+        assert.ok(plain(lines[1]).startsWith(`${bottom} `));
+        assert.ok(lines[0].includes(foregroundAnsi(rgbColor(228, 138, 122), mode)));
+        assert.ok(lines[0].includes(backgroundAnsi(rgbColor(79, 142, 179), mode)));
+        assert.ok(lines[1].includes(foregroundAnsi(rgbColor(234, 182, 93), mode)));
+        component.invalidate();
+        assert.deepEqual(component.render(120), lines);
+      }
+    }
+  });
+});
+
+test("header：Apple Terminal 使用双色 Pi 字标，无半块像素", () => {
+  inTerminal("Apple_Terminal", () => {
+    const lines = renderHeader(120);
+    assert.equal(plain(lines[0]), `Pi v${VERSION}`);
+    assert.doesNotMatch(lines.join("\n"), /[▀█]/);
+    assert.ok(lines[0].includes(theme.style("P", { fg: rgbColor(228, 138, 122) })));
+    assert.ok(lines[0].includes(theme.style("i", { fg: rgbColor(234, 182, 93) })));
+  });
+});
+
+test("header：旧版主题没有 style 时保留原文字标题", () => {
+  const oldTheme = Object.create(theme);
+  oldTheme.style = undefined;
+  inTerminal("iTerm.app", () => {
+    assert.equal(plain(headerComponent(oldTheme).render(120)[0]), `pi v${VERSION}`);
+  });
 });
 
 test("header：宽度充足时关键项齐全（未被误截断）", () => {
