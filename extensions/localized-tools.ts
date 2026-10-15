@@ -25,7 +25,6 @@ import {
   countResultRender,
   notePartial,
   shellRenders,
-  withExpanded,
 } from "./tool-renders.ts";
 
 /** write 工具折叠态预览的行数（与内置 write 渲染器一致）。 */
@@ -77,6 +76,8 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
       result: any,
       { expanded, isPartial }: { expanded: boolean; isPartial: boolean },
       theme: any,
+      // 渲染上下文的 args 用来判断文件语言，决定展开态是否高亮。
+      context?: { args?: { path?: string } },
     ) {
       if (isPartial) return notePartial(zh.tools.read.reading, theme);
 
@@ -100,11 +101,20 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
           zh.tools.read.truncatedFrom(truncation.totalLines),
         );
       }
-      return new Text(
-        withExpanded(expanded ? content.text : "", text, theme),
-        0,
-        0,
-      );
+      // 展开态跟随内置 read 渲染器做语法高亮；识别不出语言（或没有路径）时
+      // 退回逐行弱化的原文，即本地化前的显示方式。
+      const raw = content.text
+        .replace(/\r/g, "")
+        .replace(/\t/g, "   ")
+        .replace(/\n+$/, "");
+      const path = context?.args?.path;
+      const lang = path ? getLanguageFromPath(path) : undefined;
+      const body = expanded
+        ? lang
+          ? highlightCode(raw, lang).join("\n")
+          : theme.fg("dim", raw)
+        : "";
+      return new Text(body ? `${text}\n${body}` : text, 0, 0);
     },
   });
 

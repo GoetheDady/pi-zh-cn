@@ -326,6 +326,47 @@ test("上游仍把最终结果耗时送到渲染上下文（耗时文案的依�
   );
 });
 
+test("read 渲染：展开态按语言高亮，识别不出语言时退回弱化原文", async () => {
+  const dir = tmpProject();
+  try {
+    // highlightCode 走全局 theme 单例，未初始化会抛错。
+    initTheme("dark");
+    const read = registerAll(dir).get("read");
+    writeFileSync(join(dir, "code.ts"), "export const x: number = 1;\n");
+    writeFileSync(join(dir, "blob.xyz"), "just text\n");
+
+    const render = async (path: string) => {
+      const args = { path };
+      const result = await run(read, args);
+      return read
+        .renderResult(
+          result,
+          { expanded: true, isPartial: false },
+          plainTheme,
+          renderCtx(args, dir, true),
+        )
+        .render(100)
+        .join("\n");
+    };
+
+    // 内置 read 渲染器对已知语言跑 highlightCode；本地化后一度只做逐行弱化。
+    const highlighted = await render("code.ts");
+    assert.ok(
+      highlighted.includes("\u001b["),
+      `已知语言应带高亮转义，实际：${JSON.stringify(highlighted.slice(0, 120))}`,
+    );
+
+    const plain = await render("blob.xyz");
+    assert.ok(
+      !plain.includes("\u001b["),
+      `未知语言不应带高亮转义，实际：${JSON.stringify(plain.slice(0, 120))}`,
+    );
+    assert.ok(plain.includes("just text"), "未知语言仍应显示原文");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("grep 渲染：折叠态显示命中行，超出上限才提示展开", async () => {
   const dir = tmpProject();
   try {
