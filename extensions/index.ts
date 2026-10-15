@@ -21,7 +21,7 @@ import { applyUiCopy } from "./ui-copy.ts";
 import { setChineseHeader } from "./header.ts";
 import { setupChineseFooter } from "./footer.ts";
 import { registerLocalizedTools } from "./localized-tools.ts";
-import { applyCopyOverrides } from "./copy-overrides.ts";
+import { applyCopyOverrides, describeLocalization } from "./copy-overrides.ts";
 
 /**
  * 扩展入口（由 pi 扩展加载器调用）。
@@ -44,6 +44,15 @@ export default function (pi: ExtensionAPI) {
     description: "在中文 footer 和内置 footer 之间切换",
     handler: async () => {
       toggleFooter?.();
+    },
+  });
+
+  // 词条覆盖有两种静默失败（项目未受信任时整层跳过、键名拼错只在启动提示一次），
+  // 用户看到「改了没反应」时无从下手；这条命令把各层读到了什么直接摊开。
+  pi.registerCommand("zh", {
+    description: "查看汉化状态与词条覆盖情况",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify(describeLocalization());
     },
   });
 
