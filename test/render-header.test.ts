@@ -114,6 +114,54 @@ test("header：旧版主题没有 style 时保留原文字标题", () => {
   });
 });
 
+test("header：展开态给出完整键位参考表，折叠回去复原", () => {
+  const component = headerComponent();
+  const collapsed = component.render(200).map(plain);
+
+  assert.equal(collapsed.length, 5, `折叠态应为 5 行，实际 ${collapsed.length}`);
+  assert.match(collapsed[2], /完整启动帮助/, "折叠态应提示按键查看完整帮助");
+
+  // pi 靠鸭子类型识别可展开的 header（对象上有 setExpanded 即认），随后在
+  // ctrl+o 切换时主动调用。少了这个方法，内置那张键位参考表在中文界面里
+  // 就完全够不到，而折叠态的文案还在承诺「按上述按键查看完整启动帮助」。
+  assert.equal(
+    typeof (component as any).setExpanded,
+    "function",
+    "header 组件必须实现 setExpanded，否则 ctrl+o 不起作用",
+  );
+  (component as any).setExpanded(true);
+  const expanded = component.render(200).map(plain);
+
+  assert.ok(
+    !expanded.some((line: string) => line.includes("完整启动帮助")),
+    "展开态不应再提示「按键查看完整帮助」——已经展开了",
+  );
+  for (const label of [
+    "挂起",
+    "删除到行尾",
+    "切换思考等级",
+    "选择模型",
+    "打开外部编辑器",
+    "附加文件",
+  ]) {
+    assert.ok(
+      expanded.some((line: string) => line.includes(label)),
+      `展开态应含「${label}」，实际：\n${expanded.join("\n")}`,
+    );
+  }
+  assert.ok(
+    expanded.length > collapsed.length,
+    `展开态行数应多于折叠态（${expanded.length} vs ${collapsed.length}）`,
+  );
+
+  (component as any).setExpanded(false);
+  assert.deepEqual(
+    component.render(200).map(plain),
+    collapsed,
+    "折叠回去应与初始渲染一致",
+  );
+});
+
 test("header：宽度充足时关键项齐全（未被误截断）", () => {
   const text = renderHeader(120).join("\n");
   for (const expected of [
