@@ -149,3 +149,24 @@ test("没有设置文件：静默跳过，不打扰用户", () => {
   assert.deepEqual(notices, [], "没写过设置的人不该收到任何提示");
   assert.equal(zh.footer.cwdPrefix, before);
 });
+
+test("删掉覆盖后再次应用，译法回到默认（不残留到重启为止）", () => {
+  // 先归零，保证 original 就是默认值，而不是某个前面用例留下的覆盖。
+  runOverrides(undefined);
+  const original = zh.footer.cwdPrefix;
+  try {
+    runOverrides({ "pi-zh-cn": { copy: { footer: { cwdPrefix: "目录：" } } } });
+    assert.equal(zh.footer.cwdPrefix, "目录：", "前提：覆盖应已生效");
+
+    // 用户删掉了这条覆盖，设置文件里已经没有它。/reload、/new、/resume、/fork
+    // 都会在同一个进程里再次进入 session_start，这里模拟的就是那次重新应用。
+    runOverrides({});
+    assert.equal(
+      zh.footer.cwdPrefix,
+      original,
+      "设置里已经没有这条覆盖，译法也应回到默认，而不是残留在内存里直到重启 pi",
+    );
+  } finally {
+    zh.footer.cwdPrefix = original;
+  }
+});

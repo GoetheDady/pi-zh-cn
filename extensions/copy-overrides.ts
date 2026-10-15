@@ -29,6 +29,45 @@ import { zh } from "./zh.ts";
 const SETTINGS_KEY = "pi-zh-cn";
 
 /**
+ * zh 表在第一次覆盖之前的样子。每次应用覆盖都先从它还原，再重新合并。
+ *
+ * 不还原的话，用户删掉某条覆盖后，再次进入 session_start（/reload、/new、
+ * /resume、/fork 都会），旧译法会一直留在内存里，直到重启 pi。模块加载时 zh
+ * 还没被任何覆盖动过，所以这里拍下的就是默认值。
+ */
+const pristine = cloneTree(zh);
+
+/**
+ * 深拷贝 zh 的对象结构。字符串与函数（如「N 行输出」）按原样保留——函数本就
+ * 不会被覆盖，字符串则需要在还原时换回来。zh 里没有数组，不必处理数组。
+ *
+ * @param source zh 表或其子树
+ */
+function cloneTree(source: any): any {
+  if (source === null || typeof source !== "object") return source;
+  return Object.fromEntries(
+    Object.entries(source).map(([key, value]) => [key, cloneTree(value)]),
+  );
+}
+
+/**
+ * 把 snapshot 里的叶子还原回 target。覆盖只改已有的字符串键、不增删键，
+ * 所以逐键复原就够了。
+ *
+ * @param target 要被还原的 zh 表（或其子树）
+ * @param snapshot 对应的默认值快照
+ */
+function restoreTree(target: any, snapshot: any): void {
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value !== null && typeof value === "object") {
+      restoreTree(target[key], value);
+    } else {
+      target[key] = value;
+    }
+  }
+}
+
+/**
  * 把 source 里能与 target 对上的字符串叶子写进 target，返回写入条数。
  *
  * 只在两侧都是字符串时才覆盖：借这条同时挡住「拿字符串去替 zh.ts 里的函数
@@ -70,6 +109,8 @@ function mergeOverrides(target: any, source: any): number {
  * @param ctx 当前会话上下文
  */
 export function applyCopyOverrides(ctx: ExtensionContext): void {
+  // 每次都从默认译法重新合并，删掉的覆盖才会真的回到默认。
+  restoreTree(zh, pristine);
   let provided = false;
   let applied = 0;
   let layerFailed = false;
