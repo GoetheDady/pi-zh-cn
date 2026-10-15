@@ -14,6 +14,11 @@
  * - `tools.*` → localized-tools.ts / tool-renders.ts
  * - `trust.*` → trust.ts　`builtinCommands` → ui-copy.ts
  */
+/*
+ * 词条表本身可变：copy-overrides.ts 在 session_start 时把 settings.json 里
+ * 的 pi-zh-cn.copy 深合并进来。所以这里不能写 `as const`——那等于声明一份
+ * 只读表，与实际用法不符。
+ */
 export const zh = {
   // 流式加载提示（默认 "Working..."，工具执行时也会显示）
   workingMessage: "正在处理…",
@@ -233,5 +238,4 @@ export const zh = {
     reload: "重新加载快捷键、扩展、技能、提示词、主题和上下文文件",
     quit: "退出 pi",
   },
-} as const;
-
+};

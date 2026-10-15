@@ -11,6 +11,7 @@
 - **不改模型输入**：发给模型的内容保持不变，工具 description 保留英文原文，避免影响模型行为
 - **按需开启**：`grep`、`find`、`ls` 或 `powershell` 没开就不会被偷偷打开
 - **键位跟随**：快捷键提示跟随你自己的键位配置
+- **改词不改源码**：settings.json 里写 `pi-zh-cn.copy` 就能覆盖任意字符串词条，见[改词](#改词)
 
 ## 汉化范围
 
@@ -60,6 +61,25 @@ pi remove npm:pi-zh-cn
 
 Node 版本要求跟随 pi，由 pi 自己声明和检查。
 
+## 改词
+
+某处译法不合口味，不用改源码、也不用 fork——在 pi 的 `settings.json` 里写 `pi-zh-cn.copy`，结构与 [`extensions/zh.ts`](extensions/zh.ts) 一致，叶子写字符串：
+
+```json
+{
+  "pi-zh-cn": {
+    "copy": {
+      "footer": { "cwdPrefix": "目录：" },
+      "tools": { "bash": { "done": "跑完了" } }
+    }
+  }
+}
+```
+
+- 全局设置在 `~/.pi/agent/settings.json`；项目本地那份（`.pi/settings.json`）在该项目受信任时优先生效，与内置设置同一套信任边界
+- 只覆盖字符串条目。`zh.ts` 里有一部分是函数（要拼数字，例如「N 行输出」），JSON 表达不了，那些保持原样
+- 键名拼错不会有反应——一条都没对上时会提示一次，免得你以为改完了其实没生效
+
 ## 已知局限
 
 - 内置菜单和其他硬编码在 pi 源码里的英文保持原样——扩展 API 够不到，除非 fork 上游重编译，不值得
@@ -78,6 +98,8 @@ pi --no-session -e ./extensions/index.ts -p "hi"
 ```
 
 所有文案都集中在 [`extensions/zh.ts`](extensions/zh.ts)，想改词只动这一个文件就够了。
+只是不满意某几处译法、并不想接手维护的话，用[改词](#改词)那节的覆盖机制更省事——
+升级插件不会冲掉你的改动。
 
 ### 上游兼容性测试（契约测试）
 
