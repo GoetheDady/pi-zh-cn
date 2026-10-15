@@ -64,6 +64,8 @@ Node 版本要求跟随 pi，由 pi 自己声明和检查。
 
 - 内置菜单和其他硬编码在 pi 源码里的英文保持原样——扩展 API 够不到，除非 fork 上游重编译，不值得
 - 全屏模式（pi 1.0 起为默认，`tuiMode: "fullscreen"`）文案写死在 pi-tui 里，同样够不到，例如 `↓ Jump to latest message · <键位>`，以及搜索框的 `Find in transcript` / `No matches`
+- `read` 折叠态对 `SKILL.md`、`AGENTS.md`/`CLAUDE.md` 以及 pi 自带文档的紧凑显示没有复刻（上游显示 `read skill <名字>`，不显示完整路径）：上游那套路径分类依赖包内未导出的助手，复刻要把 pi 自身的安装路径写死，而只在读这几类文件时才看得出差别，不值得
+- `edit` 在结果返回前不显示行内 diff 预览（上游会在参数到齐后就先算出来展示）：预览依赖未导出的 `computeEditsDiff`，够不到；结果返回后的 diff 显示不受影响
 
 ## 开发
 
