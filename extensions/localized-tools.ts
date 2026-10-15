@@ -13,11 +13,15 @@ import {
   createPowerShellTool,
   createReadTool,
   createWriteTool,
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  formatSize,
   getLanguageFromPath,
   highlightCode,
   keyHint,
   type BashToolDetails,
   type ReadToolDetails,
+  type TruncationResult,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { zh } from "./zh.ts";
@@ -34,6 +38,32 @@ const WRITE_PREVIEW_LINES = 10;
 // （renderers/grep.js 用 15，find.js / ls.js 用 20）。
 const GREP_PREVIEW_LINES = 15;
 const LIST_PREVIEW_LINES = 20;
+
+/**
+ * read 的截断提示，三种形态对齐内置 read 渲染器：首行就超字节上限、
+ * 命中行数上限、命中字节上限。三者给的信息不同，合成一句会误导
+ * （例如首行超限时并没有「共 N 行」这回事）。
+ *
+ * @param t 工具结果 details 里的 truncation
+ */
+function readTruncationNotice(t: TruncationResult): string {
+  if (t.firstLineExceedsLimit) {
+    return zh.tools.read.truncatedFirstLine(
+      formatSize(t.maxBytes ?? DEFAULT_MAX_BYTES),
+    );
+  }
+  if (t.truncatedBy === "lines") {
+    return zh.tools.read.truncatedLines(
+      t.outputLines,
+      t.totalLines,
+      t.maxLines ?? DEFAULT_MAX_LINES,
+    );
+  }
+  return zh.tools.read.truncatedBytes(
+    t.outputLines,
+    formatSize(t.maxBytes ?? DEFAULT_MAX_BYTES),
+  );
+}
 
 /**
  * 重注册所有内置工具的中文渲染。
@@ -96,10 +126,7 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
       const truncation = (result.details as ReadToolDetails | undefined)
         ?.truncation;
       if (truncation?.truncated) {
-        text += theme.fg(
-          "warning",
-          zh.tools.read.truncatedFrom(truncation.totalLines),
-        );
+        text += theme.fg("warning", readTruncationNotice(truncation));
       }
       // 展开态跟随内置 read 渲染器做语法高亮；识别不出语言（或没有路径）时
       // 退回逐行弱化的原文，即本地化前的显示方式。

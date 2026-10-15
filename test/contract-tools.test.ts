@@ -73,6 +73,80 @@ test("read：文本走 content[0].text；超限文件带 truncation.truncated �
   }
 });
 
+test("read 渲染：三种截断形态各给对应文案（行数上限 / 字节上限 / 首行超限）", async () => {
+  const dir = tmpProject();
+  try {
+    const read = registerAll(dir).get("read");
+    const render = async (file: string) => {
+      const args = { path: file };
+      const result = await run(read, args);
+      const t = result.details!.truncation!;
+      const out = read
+        .renderResult(
+          result,
+          { expanded: false, isPartial: false },
+          plainTheme,
+          renderCtx(args, dir),
+        )
+        .render(200)
+        .join("\n");
+      return { t, out };
+    };
+
+    // 三种形态都能用真实文件稳定触发，所以这里不用合成 details。
+    writeFileSync(
+      join(dir, "many.txt"),
+      Array.from({ length: 2500 }, (_, i) => `line ${i}`).join("\n"),
+    );
+    const many = await render("many.txt");
+    assert.equal(many.t.truncatedBy, "lines", "夹具应命中行数上限");
+    assert.ok(
+      many.out.includes(
+        zh.tools.read.truncatedLines(
+          many.t.outputLines,
+          many.t.totalLines,
+          many.t.maxLines,
+        ),
+      ),
+      `应给行数上限文案，实际：${many.out}`,
+    );
+
+    // 200 行 × 400 字节 = 80KB，超 50KB 字节上限
+    writeFileSync(
+      join(dir, "fat.txt"),
+      Array.from({ length: 200 }, () => "x".repeat(400)).join("\n"),
+    );
+    const fat = await render("fat.txt");
+    assert.equal(fat.t.truncatedBy, "bytes", "夹具应命中字节上限");
+    assert.ok(
+      fat.out.includes(
+        zh.tools.read.truncatedBytes(
+          fat.t.outputLines,
+          formatSize(fat.t.maxBytes),
+        ),
+      ),
+      `应给字节上限文案，实际：${fat.out}`,
+    );
+
+    // 单行 60KB：首行就超限，此时并没有「共 N 行」这回事
+    writeFileSync(join(dir, "one.txt"), "y".repeat(60_000));
+    const one = await render("one.txt");
+    assert.equal(one.t.firstLineExceedsLimit, true, "夹具应命中首行超限");
+    assert.ok(
+      one.out.includes(
+        zh.tools.read.truncatedFirstLine(formatSize(one.t.maxBytes)),
+      ),
+      `应给首行超限文案，实际：${one.out}`,
+    );
+    assert.ok(
+      !one.out.includes(zh.tools.read.truncatedLines(0, 1, 2000)),
+      "首行超限不应套用行数上限文案",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("bash：失败命令标记 isError，错误文本含「Command exited with code N」句式", async () => {
   const dir = tmpProject();
   try {
