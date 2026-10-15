@@ -21,12 +21,8 @@
  * `lines: (n) => \`${n} 行输出\``），JSON 表达不了，那些保持原样。
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import {
-  CONFIG_DIR_NAME,
-  getAgentDir,
-  type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { settingsFiles } from "./settings.ts";
 import { zh } from "./zh.ts";
 
 /** 覆盖项在 settings.json 里的命名空间键。 */
@@ -74,16 +70,11 @@ function mergeOverrides(target: any, source: any): number {
  * @param ctx 当前会话上下文
  */
 export function applyCopyOverrides(ctx: ExtensionContext): void {
-  const paths = [join(getAgentDir(), "settings.json")];
-  if (ctx.isProjectTrusted()) {
-    paths.push(join(ctx.cwd, CONFIG_DIR_NAME, "settings.json"));
-  }
-
   let provided = false;
   let applied = 0;
   let layerFailed = false;
 
-  for (const path of paths) {
+  for (const path of settingsFiles(ctx)) {
     let copy: unknown;
     try {
       copy = (JSON.parse(readFileSync(path, "utf8")) as any)?.[SETTINGS_KEY]
