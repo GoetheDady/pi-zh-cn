@@ -24,3 +24,13 @@ export const readDist = (...parts: string[]): string =>
 /** 按文件 URL 加载上游 dist 模块（顶层 exports 不含的子路径）。 */
 export const loadDist = async <T = any>(...parts: string[]): Promise<T> =>
   import(new URL(`file://${dist(...parts)}`).href) as Promise<T>;
+
+/**
+ * agent 目录的环境变量名，用于把设置文件重定向到临时目录。
+ *
+ * 未从包顶层导出（顶层只导 getAgentDir）。顺带钉住这个变量名：上游改名时
+ * 这里会失败，而不是安静地让测试去读真实家目录。
+ */
+export const { ENV_AGENT_DIR } = await loadDist<{ ENV_AGENT_DIR: string }>(
+  "config.js",
+);

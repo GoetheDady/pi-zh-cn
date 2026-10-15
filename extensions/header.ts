@@ -9,13 +9,37 @@ import {
   VERSION,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { settingsFiles } from "./settings.ts";
 import { zh } from "./zh.ts";
 
 // 与上游 pi-logo 相同的品牌色，不随主题改变；theme.style 负责颜色模式转换。
 const CORAL = { kind: "rgb", r: 228, g: 138, b: 122 } as const;
 const BLUE = { kind: "rgb", r: 79, g: 142, b: 179 } as const;
 const YELLOW = { kind: "rgb", r: 234, g: 182, b: 93 } as const;
+
+/**
+ * 用户是否要求静默启动（`quietStartup: true`）。
+ *
+ * 逐层读、后面的层覆盖前面的（全局 → 项目本地）。`"header"` 这个取值只关掉
+ * 启动详情、不关启动画面，所以只有布尔 true 才算数——与内置
+ * `shouldShowStartupHeader()` 的 `quietStartup !== true` 一致。
+ *
+ * @param ctx 当前会话上下文
+ */
+function isStartupSilenced(ctx: ExtensionContext): boolean {
+  let silenced: boolean | undefined;
+  for (const path of settingsFiles(ctx)) {
+    try {
+      const value = JSON.parse(readFileSync(path, "utf8"))?.quietStartup;
+      if (typeof value === "boolean") silenced = value;
+    } catch {
+      // 设置文件不存在或内容无效时忽略该层。
+    }
+  }
+  return silenced === true;
+}
 
 /**
  * 设置中文启动 header（仅 TUI 模式，其他模式无效果）。
@@ -27,6 +51,15 @@ const YELLOW = { kind: "rgb", r: 234, g: 182, b: 93 } as const;
  */
 export function setChineseHeader(ctx: ExtensionContext) {
   if (ctx.mode !== "tui") return;
+
+  // quietStartup: true 表示不要启动画面。上游此时把内置 header 换成一个空
+  // 占位，而 setHeader 会把那个占位替换掉——不判断的话，用户明确关掉的东西
+  // 会被我们塞回来，还是中文的。
+  //
+  // 上游的条件是 `verbose || quietStartup !== true`，而 verbose 不在扩展上下文
+  // 里，所以「同时传了 --verbose 又设 quietStartup: true」这种自相矛盾的组合
+  // 我们会照设置走（隐藏），与上游相反。常规情况以设置为准。
+  if (isStartupSilenced(ctx)) return;
 
   // 启动 header 的展开态就是「展开工具输出」（ctrl+o）那一个开关：pi 在
   // setToolsExpanded 里对自定义 header 调 setExpanded，识别方式是鸭子类型

@@ -5,12 +5,9 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import {
-  CONFIG_DIR_NAME,
-  getAgentDir,
-  type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { settingsFiles } from "./settings.ts";
 import { zh } from "./zh.ts";
 
 /**
@@ -36,9 +33,7 @@ export function setupChineseFooter(ctx: ExtensionContext): (() => void) | undefi
     usingZhFooter = true;
     // 自动压缩标记：全局设置为基准，受信任项目的本地设置优先。
     // 一秒缓存避免流式渲染时频繁读文件，同时能跟随 /settings 的运行时修改。
-    const settingsPaths = [join(getAgentDir(), "settings.json")];
-    if (ctx.isProjectTrusted())
-      settingsPaths.push(join(ctx.cwd, CONFIG_DIR_NAME, "settings.json"));
+    const settingsPaths = settingsFiles(ctx);
     let autoCompactEnabled = true;
     let autoCompactCheckedAt = 0;
     /**

@@ -8,12 +8,15 @@
  * theme 用 dist 里的真实主题（带 ANSI 转义），断言才算数：透传文字的假
  * theme 测不出 ANSI 与中文宽字符混排时的超宽。
  */
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { initTheme, VERSION } from "@earendil-works/pi-coding-agent";
 import { backgroundAnsi, foregroundAnsi, rgbColor, visibleWidth } from "@earendil-works/pi-tui";
 import { setChineseHeader } from "../extensions/header.ts";
-import { dist, loadDist } from "./helpers.ts";
+import { dist, ENV_AGENT_DIR, loadDist } from "./helpers.ts";
 
 // getThemeByName 未从包顶层导出（顶层只有 initTheme 与 Theme 类）。
 const { getThemeByName, loadThemeFromPath } = await loadDist<{
@@ -25,17 +28,57 @@ const { getThemeByName, loadThemeFromPath } = await loadDist<{
 initTheme("dark");
 const theme = getThemeByName("dark");
 
-/** 跑一次 setChineseHeader，用它注册给 pi 的组件渲染指定宽度。 */
-function headerComponent(activeTheme = theme) {
+// 设置文件落在临时目录，绝不读用户真实的 ~/.pi/agent/settings.json：本机
+// 恰好设了 quietStartup 的话，下面所有用例都会莫名变红。
+const agentDir = mkdtempSync(join(tmpdir(), "pi-zh-cn-header-"));
+const projectDir = mkdtempSync(join(tmpdir(), "pi-zh-cn-header-cwd-"));
+process.env[ENV_AGENT_DIR] = agentDir;
+after(() => {
+  rmSync(agentDir, { recursive: true, force: true });
+  rmSync(projectDir, { recursive: true, force: true });
+});
+
+/**
+ * 跑一次 setChineseHeader，返回它注册的组件；quietStartup 要求静默时返回
+ * undefined（此时扩展不应调用 setHeader）。
+ *
+ * @param settings 全局 settings.json 的内容；undefined 表示不建这个文件
+ * @param opts trusted 项目是否受信任；project 为项目本地设置的内容
+ */
+function registerHeader(
+  settings?: unknown,
+  opts: { trusted?: boolean; project?: unknown } = {},
+): any {
+  rmSync(join(agentDir, "settings.json"), { force: true });
+  if (settings !== undefined) {
+    writeFileSync(join(agentDir, "settings.json"), JSON.stringify(settings));
+  }
+  rmSync(join(projectDir, ".pi"), { recursive: true, force: true });
+  if (opts.project !== undefined) {
+    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+    writeFileSync(
+      join(projectDir, ".pi", "settings.json"),
+      JSON.stringify(opts.project),
+    );
+  }
+
   let factory: any;
   setChineseHeader({
     mode: "tui",
+    cwd: projectDir,
+    isProjectTrusted: () => opts.trusted === true,
     ui: {
       setHeader: (f: any) => {
         factory = f;
       },
     },
   } as any);
+  return factory;
+}
+
+/** 跑一次 setChineseHeader，用它注册给 pi 的组件渲染指定宽度。 */
+function headerComponent(activeTheme = theme) {
+  const factory = registerHeader();
   assert.ok(factory, "TUI 模式下应注册 header 渲染器");
   return factory({}, activeTheme);
 }
@@ -179,4 +222,37 @@ test("header：宽度充足时关键项齐全（未被误截断）", () => {
       `宽度 120 时 header 缺少「${expected}」：\n${text}`,
     );
   }
+});
+
+test("header：quietStartup 为 true 时不注册，尊重用户关掉启动画面的要求", () => {
+  // 上游在 quietStartup: true 时把内置 header 换成一个空占位，而 setHeader 会
+  // 替换掉那个占位——不判断的话，用户明确关掉的启动画面会被我们塞回来。
+  assert.equal(
+    registerHeader({ quietStartup: true }),
+    undefined,
+    "quietStartup: true 时不该注册 header",
+  );
+
+  // "header" 只关掉启动详情、不关启动画面（内置的判断是 quietStartup !== true）。
+  assert.ok(registerHeader({ quietStartup: "header" }), "取值 header 时仍应显示");
+  assert.ok(registerHeader({ quietStartup: false }), "false 时仍应显示");
+  assert.ok(registerHeader({}), "未设置时仍应显示");
+
+  // 项目本地设置优先，与内置设置同一套层级：全局关了、项目里打开就按项目走。
+  assert.ok(
+    registerHeader(
+      { quietStartup: true },
+      { trusted: true, project: { quietStartup: false } },
+    ),
+    "受信任项目的本地设置应覆盖全局",
+  );
+  // 项目不受信任时不读它那份，全局的 true 仍然生效。
+  assert.equal(
+    registerHeader(
+      { quietStartup: true },
+      { trusted: false, project: { quietStartup: false } },
+    ),
+    undefined,
+    "项目不受信任时不该读它的设置",
+  );
 });

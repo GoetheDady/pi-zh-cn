@@ -15,13 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyCopyOverrides } from "../extensions/copy-overrides.ts";
 import { zh } from "../extensions/zh.ts";
-import { loadDist } from "./helpers.ts";
-
-// ENV_AGENT_DIR 未从包顶层导出（顶层只导 getAgentDir），按文件 URL 加载。
-// 顺带钉住这个变量名：上游改名时这里会失败，而不是安静地测了个假目录。
-const { ENV_AGENT_DIR } = await loadDist<{ ENV_AGENT_DIR: string }>(
-  "config.js",
-);
+import { ENV_AGENT_DIR } from "./helpers.ts";
 
 /**
  * 在临时目录里摆好设置文件跑一次覆盖，返回收到的提示。
