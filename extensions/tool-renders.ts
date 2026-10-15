@@ -72,6 +72,20 @@ function failureState(
   };
 }
 
+/**
+ * 格式化工具耗时，与内置 bash 行同一套刻度：不足 1 分钟给一位小数的秒，
+ * 之后依次进位到「分 秒」「时 分 秒」。数字与单位保持原样，只换前缀文案。
+ */
+export function formatToolDuration(ms: number): string {
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${remainder}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
+}
+
 // shell 类工具（bash/powershell 文案同构）的渲染对。
 type ShellCopy =
   | typeof zh.tools.bash
@@ -81,8 +95,8 @@ type ShellCopy =
  * 生成 shell 类工具（bash / powershell）共用的 renderCall + renderResult。
  *
  * 调用渲染显示命令（超 80 字符截断）与可选的超时参数；结果渲染根据
- * {@link failureState} 显示完成/失败状态、非空行数与截断警告，展开态追加
- * 逐行弱化的原始输出。
+ * {@link failureState} 显示完成/失败状态、非空行数、截断警告与耗时（对齐
+ * 内置 shell 行的 Took），展开态追加逐行弱化的原始输出。
  *
  * @param w 该工具的文案对象（zh.tools.bash 或 zh.tools.powershell）
  * @param extraRe 传给 {@link failureState} 的额外失败特征正则
@@ -106,7 +120,7 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
       theme: any,
       // pi 把 isError 放在第 4 个参数（渲染上下文）上，第 1 个参数只有
       // content/details；旧版 pi 不传该参数。
-      context?: { isError?: boolean },
+      context?: { isError?: boolean; durationMs?: number },
     ): Text {
       if (isPartial) return notePartial(w.running, theme);
       const output = textOf(result);
@@ -126,6 +140,14 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
         (result.details as BashToolDetails | undefined)?.truncation?.truncated
       ) {
         text += theme.fg("warning", ` ${w.truncated}`);
+      }
+      // 内置 shell 行末尾有耗时（Took 1.2s），中文行原本丢了这条。durationMs
+      // 由框架从最终结果填在渲染上下文上（tool-execution.ts），不依赖渲染器
+      // 自己计时，所以这里只覆盖「已完成」那一档；流式中与旧会话的存量结果
+      // 拿不到该值，自然不显示。
+      const durationMs = context?.durationMs;
+      if (!isPartial && typeof durationMs === "number") {
+        text += theme.fg("dim", ` ${w.took(formatToolDuration(durationMs))}`);
       }
       return new Text(withExpanded(expanded ? output : "", text, theme), 0, 0);
     },
