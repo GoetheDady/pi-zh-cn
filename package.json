@@ -9,7 +9,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test": "tsc -p . && node --test \"test/*.test.ts\""
+    "test": "tsc -p . && node --test \"test/*.test.ts\"",
+    "upstream": "node scripts/upstream-report.ts"
   },
   "keywords": [
     "pi-package",
