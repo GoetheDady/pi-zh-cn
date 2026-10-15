@@ -8,14 +8,18 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
-import { loadDist } from "./helpers.ts";
+import { ENV_AGENT_DIR, loadDist } from "./helpers.ts";
 // getProjectTrustOptions 未从包顶层导出。
 const { getProjectTrustOptions } = await loadDist("core/trust-manager.js");
-import { saveTrustDecisions } from "../extensions/trust.ts";
+import {
+  registerProjectTrustDialog,
+  saveTrustDecisions,
+} from "../extensions/trust.ts";
+import { zh } from "../extensions/zh.ts";
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), "pi-zh-cn-trust-"));
@@ -151,5 +155,81 @@ test("getProjectTrustOptions 仍提供扩展弹窗所复刻的选项集合", () 
     );
   } finally {
     rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("信任弹窗：defaultProjectTrust 为 always/never 时让路，不弹窗", async () => {
+  const agentDir = tmpDir();
+  const projectDir = tmpDir();
+  const previous = process.env[ENV_AGENT_DIR];
+  try {
+    // 处理器从 agent 目录读设置与已有决定，指到临时目录才不会碰真实环境。
+    process.env[ENV_AGENT_DIR] = agentDir;
+
+    let handler: any;
+    registerProjectTrustDialog({
+      on: (name: string, fn: any) => {
+        if (name === "project_trust") handler = fn;
+      },
+    } as any);
+    assert.equal(typeof handler, "function", "应注册 project_trust 处理器");
+
+    /** 跑一次处理器，返回弹了几次窗与它的返回值。 */
+    const run = async (settings?: unknown) => {
+      if (settings === undefined) {
+        rmSync(join(agentDir, "settings.json"), { force: true });
+      } else {
+        writeFileSync(
+          join(agentDir, "settings.json"),
+          JSON.stringify(settings),
+        );
+      }
+      let prompts = 0;
+      const result = await handler(
+        { type: "project_trust", cwd: projectDir },
+        {
+          cwd: projectDir,
+          hasUI: true,
+          mode: "tui",
+          ui: {
+            select: async () => {
+              prompts += 1;
+              return zh.trust.options.trustSessionOnly;
+            },
+          },
+        },
+      );
+      return { prompts, result };
+    };
+
+    // 未设置＝上游默认的 "ask"：应当弹窗并给出决定。
+    const asked = await run();
+    assert.equal(asked.prompts, 1, "未设置时应弹窗询问");
+    assert.notEqual(asked.result?.trusted, "undecided", "弹窗后应给出决定");
+
+    // always / never 时上游直接定论、不弹窗；那条判断排在扩展事件之后，所以
+    // 我们得自己让路，否则用户设了「永不询问」仍然会被问。
+    for (const value of ["always", "never"]) {
+      const letThrough = await run({ defaultProjectTrust: value });
+      assert.equal(
+        letThrough.prompts,
+        0,
+        `defaultProjectTrust: ${value} 时不该弹窗`,
+      );
+      assert.equal(
+        letThrough.result?.trusted,
+        "undecided",
+        "让路必须返回 undecided——返回任何别的值都会被 core 当成结论，反而绕过了该设置",
+      );
+    }
+
+    // 不认识的取值按默认的 ask 处理（与上游 SETTINGS_DEFAULTS 一致）。
+    const unknown = await run({ defaultProjectTrust: "sometimes" });
+    assert.equal(unknown.prompts, 1, "不认识的取值应按 ask 处理");
+  } finally {
+    if (previous === undefined) delete process.env[ENV_AGENT_DIR];
+    else process.env[ENV_AGENT_DIR] = previous;
+    rmSync(agentDir, { recursive: true, force: true });
+    rmSync(projectDir, { recursive: true, force: true });
   }
 });

@@ -18,6 +18,7 @@ import {
   getAgentDir,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { globalSettingsFile } from "./settings.ts";
 import { zh } from "./zh.ts";
 
 /** realpath 归一化（与 core 的 normalizeCwd 等价）；目录不存在时原样返回。 */
@@ -94,6 +95,23 @@ export const saveTrustDecisions = (
 };
 
 /**
+ * 全局设置里的 defaultProjectTrust（"ask" | "always" | "never"）。
+ *
+ * 只看全局那份 settings.json——理由见 settings.ts 的 globalSettingsFile。
+ * 取不到或不认识的值一律按 "ask"（上游的默认值）。
+ */
+function defaultProjectTrust(): "ask" | "always" | "never" {
+  try {
+    const value = JSON.parse(readFileSync(globalSettingsFile(), "utf8"))
+      ?.defaultProjectTrust;
+    return value === "always" || value === "never" ? value : "ask";
+  } catch {
+    // 设置文件不存在或内容无效：按默认的「询问」。
+    return "ask";
+  }
+}
+
+/**
  * 注册 `project_trust` 事件处理器：用中文选择弹窗代替内置英文信任界面。
  *
  * 选「信任父文件夹」时按内置语义写 trust.json（父目录 = 信任、清除本目
@@ -109,6 +127,11 @@ export function registerProjectTrustDialog(pi: ExtensionAPI) {
   pi.on("project_trust", async (event, ctx) => {
     // 无 UI（rpc/print 等模式）或已有保存的决定时返回 undecided，让 core 走默认流程。
     if (!ctx.hasUI || savedTrustDecision(event.cwd) !== null) return { trusted: "undecided" };
+    // defaultProjectTrust 为 always/never 时上游直接定论、压根不弹窗。那条判断
+    // 排在扩展事件之后（core/project-trust.js 的 resolveProjectTrusted），所以
+    // 我们得自己让路：否则用户设了「永不询问」仍然会被问，而 "never" 下还会多
+    // 给一个本不该存在的「信任」选项。
+    if (defaultProjectTrust() !== "ask") return { trusted: "undecided" };
 
     const trustPath = normalizeDir(event.cwd);
     const parentPath = dirname(trustPath);

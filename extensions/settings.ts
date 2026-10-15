@@ -16,12 +16,23 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 /**
+ * 全局设置文件路径。
+ *
+ * 有些设置必须只看这一份：`defaultProjectTrust` 要在「项目是否受信任」有结论
+ * 之前生效，而项目本地设置的生效前提正是项目已受信任——先有鸡还是先有蛋。
+ * 上游 settings-manager 读它时同样只看全局。
+ */
+export function globalSettingsFile(): string {
+  return join(getAgentDir(), "settings.json");
+}
+
+/**
  * 按优先级从低到高返回设置文件路径（先全局，后项目本地）。
  *
  * @param ctx 当前会话上下文
  */
 export function settingsFiles(ctx: ExtensionContext): string[] {
-  const paths = [join(getAgentDir(), "settings.json")];
+  const paths = [globalSettingsFile()];
   if (ctx.isProjectTrusted()) {
     paths.push(join(ctx.cwd, CONFIG_DIR_NAME, "settings.json"));
   }
