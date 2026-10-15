@@ -23,6 +23,8 @@ import {
   createLsTool,
   createReadTool,
   createWriteTool,
+  DEFAULT_MAX_BYTES,
+  formatSize,
   initTheme,
 } from "@earendil-works/pi-coding-agent";
 import { registerLocalizedTools } from "../extensions/localized-tools.ts";
@@ -207,6 +209,111 @@ test("formatToolDuration：与内置 bash 行的刻度一致（秒 / 分秒 / �
   assert.equal(formatToolDuration(59_400), "59.4s");
   assert.equal(formatToolDuration(65_000), "1m 5s");
   assert.equal(formatToolDuration(3_723_000), "1h 2m 3s");
+});
+
+test("bash 截断：上游脚注被剥掉，改给中文的完整输出路径与行数", async () => {
+  const dir = tmpProject();
+  try {
+    const tool = createBashTool(dir);
+    const result = await run(tool, { command: "seq 1 5000" });
+    const details = result.details as any;
+
+    // 契约：截断信息在 details 里（truncation + fullOutputPath 同时出现，
+    // 由 bash.js 的 persistIfTruncated 保证）。中文提示依赖这两个字段。
+    assert.equal(details?.truncation?.truncated, true, "5000 行应触发截断");
+    const fullOutputPath = details?.fullOutputPath;
+    assert.equal(
+      typeof fullOutputPath,
+      "string",
+      "截断结果应带完整输出落盘路径",
+    );
+
+    // 上游把英文脚注追加在结果文本末尾，中文行必须在展示层剥掉它，
+    // 否则展开态会同时出现英文脚注与中文提示。
+    const raw = textOf(result);
+    assert.ok(
+      raw.includes("Showing lines") && raw.includes(fullOutputPath),
+      `上游脚注形态变了，剥除逻辑（stripTruncationFooter）需复核：${raw.slice(-160)}`,
+    );
+
+    const { renderResult } = shellRenders(zh.tools.bash) as any;
+    const render = (expanded: boolean) =>
+      renderResult(
+        result,
+        { expanded, isPartial: false },
+        plainTheme,
+        renderCtx({ command: "seq 1 5000" }, dir),
+      )
+        .render(200)
+        .join("\n");
+
+    const shown = render(false);
+    assert.ok(
+      shown.includes(zh.tools.bash.fullOutput(fullOutputPath)),
+      `折叠态应给出完整输出路径，实际：${shown}`,
+    );
+    assert.ok(
+      shown.includes(
+        zh.tools.bash.truncatedLines(
+          details.truncation.outputLines,
+          details.truncation.totalLines,
+        ),
+      ),
+      `折叠态应给出行数，实际：${shown}`,
+    );
+    assert.ok(
+      !shown.includes("Full output:"),
+      `折叠态不应出现英文路径文案，实际：${shown}`,
+    );
+
+    const expandedOut = render(true);
+    assert.ok(
+      !expandedOut.includes("Showing lines"),
+      "展开态不应漏出上游英文脚注",
+    );
+    assert.ok(expandedOut.includes("5000"), "展开态仍应含实际输出内容");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("bash 截断：按字节截断走「上限」文案，不套用行数文案", () => {
+  // 字节截断在实际 bash 里难稳定触发（要单行超 50KB），用合成 details 覆盖
+  // truncatedBy === "bytes" 这个分支。
+  const { renderResult } = shellRenders(zh.tools.bash) as any;
+  const details = {
+    truncation: {
+      truncated: true,
+      truncatedBy: "bytes" as const,
+      outputLines: 120,
+      totalLines: 400,
+      maxBytes: DEFAULT_MAX_BYTES,
+    },
+    fullOutputPath: "/tmp/full.txt",
+  };
+  const shown = renderResult(
+    { content: [{ type: "text", text: "x\ny\n" }], details },
+    { expanded: false, isPartial: false },
+    plainTheme,
+    renderCtx({ command: "boom" }, process.cwd()),
+  )
+    .render(200)
+    .join("\n");
+
+  assert.ok(
+    shown.includes(zh.tools.bash.fullOutput("/tmp/full.txt")),
+    `应给出完整输出路径，实际：${shown}`,
+  );
+  assert.ok(
+    shown.includes(
+      zh.tools.bash.truncatedBytes(120, formatSize(DEFAULT_MAX_BYTES)),
+    ),
+    `字节截断应走上限文案，实际：${shown}`,
+  );
+  assert.ok(
+    !shown.includes(zh.tools.bash.truncatedLines(120, 400)),
+    "字节截断不应套用行数文案",
+  );
 });
 
 test("上游仍把最终结果耗时送到渲染上下文（耗时文案的依赖点）", () => {

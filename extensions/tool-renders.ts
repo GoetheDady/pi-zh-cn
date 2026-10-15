@@ -2,8 +2,10 @@
  * 内置工具渲染的共享文案模板：read/bash/edit/write/grep/find/ls
  * 的 renderResult 共用这些小工具。
  */
-import type {
-  BashToolDetails,
+import {
+  DEFAULT_MAX_BYTES,
+  formatSize,
+  type BashToolDetails,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { zh } from "./zh.ts";
@@ -92,11 +94,75 @@ type ShellCopy =
   | typeof zh.tools.powershell;
 
 /**
+ * 剥掉上游追加在结果文本末尾的英文截断脚注（`\n\n[Showing lines 1-2000 of
+ * 5000. Full output: /tmp/…]`），返回展示用的文本。
+ *
+ * 只在展示层剥离：result 原样交给模型，符合「不改模型输入」。内置 bash
+ * 渲染器做同样的事，然后自己画警告行，中文行沿用这条路径以免展开态漏出
+ * 英文、并与下面的中文提示重复。
+ *
+ * 条件与上游一致——文本需以 `]` 结尾。带状态行（失败）的结果末尾不是 `]`，
+ * 此时不剥，避免误删正文。
+ *
+ * @param output 结果文本
+ * @param details 工具结果 details
+ */
+function stripTruncationFooter(
+  output: string,
+  details?: BashToolDetails,
+): string {
+  const fullOutputPath = details?.fullOutputPath;
+  if (
+    !details?.truncation?.truncated ||
+    !fullOutputPath ||
+    !output.endsWith("]")
+  ) {
+    return output;
+  }
+  const footerStart = output.lastIndexOf("\n\n[");
+  if (footerStart === -1 || !output.slice(footerStart).includes(fullOutputPath)) {
+    return output;
+  }
+  return output.slice(0, footerStart).trimEnd();
+}
+
+/**
+ * 组装 shell 行的截断提示，对齐内置 bash 的 `[Full output: …. Truncated: …]`：
+ * 完整输出的落盘路径，加上精确的行数或字节上限；两项皆无时返回空串。
+ *
+ * @param details 工具结果 details
+ * @param w 该工具的文案对象
+ */
+function truncationNotice(
+  details: BashToolDetails | undefined,
+  w: ShellCopy,
+): string {
+  const truncation = details?.truncation;
+  const parts: string[] = [];
+  if (details?.fullOutputPath) {
+    parts.push(w.fullOutput(details.fullOutputPath));
+  }
+  if (truncation?.truncated) {
+    parts.push(
+      truncation.truncatedBy === "lines"
+        ? w.truncatedLines(truncation.outputLines, truncation.totalLines)
+        : w.truncatedBytes(
+            truncation.outputLines,
+            formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES),
+          ),
+    );
+  }
+  return parts.join("；");
+}
+
+/**
  * 生成 shell 类工具（bash / powershell）共用的 renderCall + renderResult。
  *
  * 调用渲染显示命令（超 80 字符截断）与可选的超时参数；结果渲染根据
- * {@link failureState} 显示完成/失败状态、非空行数、截断警告与耗时（对齐
- * 内置 shell 行的 Took），展开态追加逐行弱化的原始输出。
+ * {@link failureState} 显示完成/失败状态、非空行数、截断提示（
+ * {@link truncationNotice}，含完整输出路径）与耗时（对齐内置 shell 行的
+ * Took），展开态追加逐行弱化的原始输出（先经
+ * {@link stripTruncationFooter} 剥掉上游的英文截断脚注）。
  *
  * @param w 该工具的文案对象（zh.tools.bash 或 zh.tools.powershell）
  * @param extraRe 传给 {@link failureState} 的额外失败特征正则
@@ -123,7 +189,8 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
       context?: { isError?: boolean; durationMs?: number },
     ): Text {
       if (isPartial) return notePartial(w.running, theme);
-      const output = textOf(result);
+      const details = result.details as BashToolDetails | undefined;
+      const output = stripTruncationFooter(textOf(result), details);
       const { exitCode, failed } = failureState(
         output,
         context?.isError === true,
@@ -136,11 +203,8 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
           )
         : theme.fg("success", w.done);
       text += theme.fg("dim", ` (${w.lines(countNonEmpty(output))})`);
-      if (
-        (result.details as BashToolDetails | undefined)?.truncation?.truncated
-      ) {
-        text += theme.fg("warning", ` ${w.truncated}`);
-      }
+      const notice = truncationNotice(details, w);
+      if (notice) text += theme.fg("warning", ` [${notice}]`);
       // 内置 shell 行末尾有耗时（Took 1.2s），中文行原本丢了这条。durationMs
       // 由框架从最终结果填在渲染上下文上（tool-execution.ts），不依赖渲染器
       // 自己计时，所以这里只覆盖「已完成」那一档；流式中与旧会话的存量结果

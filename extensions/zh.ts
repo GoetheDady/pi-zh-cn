@@ -79,7 +79,14 @@ export const zh = {
       failed: "执行失败",
       exit: (code: number) => `退出码 ${code}`,
       lines: (n: number) => `${n} 行输出`,
-      truncated: "[输出过长，已截断]",
+      // 截断提示，对齐内置 bash 的 `[Full output: …. Truncated: …]`：给出完整
+      // 输出的落盘路径与精确行数，取代原先笼统的「输出过长，已截断」。上游
+      // 会把同样内容以英文追加在结果文本末尾，展示层负责剥掉（tool-renders.ts）。
+      fullOutput: (path: string) => `完整输出：${path}`,
+      truncatedLines: (shown: number, total: number) =>
+        `已显示 ${shown} / 共 ${total} 行`,
+      truncatedBytes: (shown: number, limit: string) =>
+        `已显示 ${shown} 行（上限 ${limit}）`,
       // 内置 bash 行会显示耗时（Took 1.2s），中文行此前漏了这条。
       took: (d: string) => `耗时 ${d}`,
     },
@@ -135,7 +142,11 @@ export const zh = {
       failed: "执行失败",
       exit: (code: number) => `退出码 ${code}`,
       lines: (n: number) => `${n} 行输出`,
-      truncated: "[输出过长，已截断]",
+      fullOutput: (path: string) => `完整输出：${path}`,
+      truncatedLines: (shown: number, total: number) =>
+        `已显示 ${shown} / 共 ${total} 行`,
+      truncatedBytes: (shown: number, limit: string) =>
+        `已显示 ${shown} 行（上限 ${limit}）`,
       took: (d: string) => `耗时 ${d}`,
     },
   },
