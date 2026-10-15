@@ -8,8 +8,45 @@ import {
   keyHint,
   type BashToolDetails,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { getCapabilities, hyperlink, Text } from "@earendil-works/pi-tui";
 import { zh } from "./zh.ts";
+
+/** 家目录缩成 ~，与内置 render-utils 的 shortenPath 同语义。 */
+function shortenPath(path: string): string {
+  const home = homedir();
+  return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
+ * 渲染工具行里的路径，对齐内置 render-utils 的 renderToolPath：家目录缩成
+ * ~；终端支持 OSC 8 时套上可点击的超链接（cmd/ctrl + 点击直接打开文件），
+ * 不支持则退化为纯文本。
+ *
+ * 上游这个助手没从包入口导出，但它依赖的 getCapabilities / hyperlink 都在
+ * pi-tui 的公开导出里，所以按同语义复刻，不需要碰 dist 内部路径。
+ *
+ * @param rawPath 原始路径；显式 null 视为参数非法
+ * @param theme 渲染主题
+ * @param cwd 解析相对路径的基准目录
+ * @param emptyFallback 路径为空时的替身（如 ls 用 "."）
+ */
+export function renderToolPath(
+  rawPath: unknown,
+  theme: any,
+  cwd: string,
+  emptyFallback?: string,
+): string {
+  if (rawPath === null) return theme.fg("error", "[invalid arg]");
+  const value =
+    typeof rawPath === "string" && rawPath ? rawPath : emptyFallback;
+  if (!value) return theme.fg("toolOutput", "...");
+  const styled = theme.fg("accent", shortenPath(value));
+  if (!getCapabilities().hyperlinks) return styled;
+  return hyperlink(styled, pathToFileURL(resolve(cwd, value)).href);
+}
 
 /**
  * 取工具结果中的首个 text 块内容；结果不含文本块（如图片）时返回空串。
