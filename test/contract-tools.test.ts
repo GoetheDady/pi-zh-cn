@@ -5,8 +5,9 @@
  * 与 tool-renders.ts 的中文渲染所依赖的结果形态不变：content[0].text、
  * details.truncation / matchLimitReached / resultLimitReached /
  * entryLimitReached、edit 的 details.diff、bash 失败时错误文本中的
- * 「Command exited with code N」句式、无匹配哨兵串。任一失败说明上游
- * 工具结果结构变了，需核对对应的 zh.tools.* 文案与渲染逻辑。
+ * 「Command exited with code N」句式、无匹配哨兵串、渲染上下文上的
+ * durationMs（耗时文案的来源）。任一失败说明上游工具结果结构变了，
+ * 需核对对应的 zh.tools.* 文案与渲染逻辑。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,8 +26,9 @@ import {
   initTheme,
 } from "@earendil-works/pi-coding-agent";
 import { registerLocalizedTools } from "../extensions/localized-tools.ts";
-import { shellRenders } from "../extensions/tool-renders.ts";
+import { formatToolDuration, shellRenders } from "../extensions/tool-renders.ts";
 import { zh } from "../extensions/zh.ts";
+import { readDist } from "./helpers.ts";
 
 /** 建一个带样例文件的临时项目目录，测试结束后清理。 */
 function tmpProject(): string {
@@ -173,6 +175,48 @@ test("bash 渲染：只有 isError 标记时也显示中文失败态", () => {
   );
   // 旧版 pi 不传渲染上下文：退化为文本推断，不能抛错。
   assert.ok(render(undefined).includes(zh.tools.bash.done));
+});
+
+test("bash 渲染：最终结果补上耗时，流式与存量结果不显示", () => {
+  // 内置 shell 行末尾有 `Took 1.2s`，中文行此前把这行整个丢了。耗时来自
+  // 渲染上下文的 durationMs（框架从最终结果填），不是渲染器自己计时。
+  const { renderResult } = shellRenders(zh.tools.bash) as any;
+  const render = (context: any, isPartial = false) =>
+    renderResult(
+      { content: [{ type: "text", text: "hello" }] },
+      { expanded: false, isPartial },
+      plainTheme,
+      context,
+    )
+      .render(80)
+      .join("\n");
+  const ctx = renderCtx({ command: "echo hello" }, process.cwd());
+  const timed = render({ ...ctx, durationMs: 1234 });
+
+  assert.ok(
+    timed.includes(zh.tools.bash.took(formatToolDuration(1234))),
+    `最终结果应带中文耗时，实际：${timed}`,
+  );
+  // 流式中框架不给 durationMs；durationMs 落地前记录的旧结果也没有。
+  assert.ok(!render({ ...ctx, durationMs: 1234 }, true).includes("耗时"));
+  assert.ok(!render(ctx).includes("耗时"));
+});
+
+test("formatToolDuration：与内置 bash 行的刻度一致（秒 / 分秒 / 时分秒）", () => {
+  assert.equal(formatToolDuration(1234), "1.2s");
+  assert.equal(formatToolDuration(59_400), "59.4s");
+  assert.equal(formatToolDuration(65_000), "1m 5s");
+  assert.equal(formatToolDuration(3_723_000), "1h 2m 3s");
+});
+
+test("上游仍把最终结果耗时送到渲染上下文（耗时文案的依赖点）", () => {
+  // 这条链在 dist 源码里，只能探针式断言：tool-execution 把
+  // result.durationMs 填进 ToolRenderContext，shellRenders 才读得到。
+  assert.match(
+    readDist("modes/interactive/components/tool-execution.js"),
+    /durationMs:\s*this\.isPartial\s*\?\s*undefined\s*:\s*this\.result\?\.durationMs/,
+    "tool-execution 不再向渲染上下文填 durationMs，zh.tools.*.took 会静默失效",
+  );
 });
 
 test("edit：折叠态回落内置 diff 渲染（本地化不吞掉改动内容）", async () => {

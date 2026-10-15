@@ -80,6 +80,8 @@ export const zh = {
       exit: (code: number) => `退出码 ${code}`,
       lines: (n: number) => `${n} 行输出`,
       truncated: "[输出过长，已截断]",
+      // 内置 bash 行会显示耗时（Took 1.2s），中文行此前漏了这条。
+      took: (d: string) => `耗时 ${d}`,
     },
     edit: {
       label: "编辑",
@@ -134,6 +136,7 @@ export const zh = {
       exit: (code: number) => `退出码 ${code}`,
       lines: (n: number) => `${n} 行输出`,
       truncated: "[输出过长，已截断]",
+      took: (d: string) => `耗时 ${d}`,
     },
   },
 
