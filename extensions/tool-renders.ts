@@ -5,6 +5,7 @@
 import {
   DEFAULT_MAX_BYTES,
   formatSize,
+  keyHint,
   type BashToolDetails,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -227,10 +228,13 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
  * 摘要后追加原始输出（无匹配时用 noMatch 文案替代）。
  *
  * @param labels 各工具对应的中文文案对象（searching 流式占位、noMatch 无
- *   匹配文案、found 条数摘要、limit 可选的上限提示、truncated 截断警告）
+ *   匹配文案、found 条数摘要、limit 可选的上限提示、truncated 截断警告、
+ *   moreLines/expand 折叠态的行数提示与展开键位说明）
  * @param sentinel 无匹配时内置工具输出的哨兵字符串
  * @param limitField details 中标记「已达到上限」的字段名
  *   （matchLimitReached / resultLimitReached / entryLimitReached）
+ * @param maxCollapsedLines 折叠态最多显示的结果行数（对齐上游：grep 15、
+ *   find/ls 20）
  */
 export function countResultRender(
   labels: {
@@ -239,9 +243,12 @@ export function countResultRender(
     found: (n: number) => string;
     limit?: (n: number) => string;
     truncated: string;
+    moreLines: (n: number) => string;
+    expand: string;
   },
   sentinel: string,
   limitField: string,
+  maxCollapsedLines: number,
 ) {
   return (
     result: any,
@@ -265,14 +272,19 @@ export function countResultRender(
     if (details.linesTruncated || details.truncation?.truncated) {
       text += theme.fg("warning", labels.truncated);
     }
-    return new Text(
-      withExpanded(
-        expanded ? (isEmpty ? labels.noMatch : output) : "",
-        text,
-        theme,
-      ),
-      0,
-      0,
-    );
+    // 结果行本身：上游 grep/find/ls 折叠态就显示前 15/20 行，中文行此前折叠
+    // 态一行都不给（只有上面那句条数），等于看不到命中了什么。展开态给全部。
+    const lines = isEmpty ? [] : output.trim().split("\n");
+    const shown = expanded ? lines : lines.slice(0, maxCollapsedLines);
+    if (shown.length > 0) {
+      text += `\n${shown.map((line) => theme.fg("toolOutput", line)).join("\n")}`;
+      const remaining = lines.length - shown.length;
+      if (remaining > 0) {
+        text += theme.fg("muted", `\n${labels.moreLines(remaining)}`);
+        text += keyHint("app.tools.expand", labels.expand);
+        text += theme.fg("muted", "）");
+      }
+    }
+    return new Text(text, 0, 0);
   };
 }

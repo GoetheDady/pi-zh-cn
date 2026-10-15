@@ -116,6 +116,8 @@ export const zh = {
       matches: (n: number) => `${n} 行结果`,
       matchLimit: (n: number) => `（达到 ${n} 条匹配上限）`,
       truncated: "（部分行已截断）",
+      moreLines: (n: number) => `…（还有 ${n} 行，`,
+      expand: "展开",
     },
     find: {
       label: "查找文件",
@@ -124,6 +126,8 @@ export const zh = {
       noFiles: "未找到匹配文件",
       results: (n: number) => `${n} 个结果`,
       resultLimit: (n: number) => `（达到 ${n} 个结果上限）`,
+      moreLines: (n: number) => `…（还有 ${n} 行，`,
+      expand: "展开",
     },
     ls: {
       label: "列出目录",
@@ -132,6 +136,8 @@ export const zh = {
       empty: "目录为空",
       entries: (n: number) => `${n} 项`,
       entryLimit: (n: number) => `（达到 ${n} 项上限）`,
+      moreLines: (n: number) => `…（还有 ${n} 行，`,
+      expand: "展开",
     },
     powershell: {
       label: "执行 PowerShell",
