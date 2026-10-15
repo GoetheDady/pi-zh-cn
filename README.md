@@ -65,7 +65,11 @@ pi remove npm:pi-zh-cn
 
 - push/PR：对着 lockfile 钉住的基线跑契约测试
 - 每两天：上游金丝雀忽略 lockfile、拉最新版 pi 跑同一套测试
-- 基线本身由 Dependabot 自动开 PR 跟进，它的 PR 就是一次新版兼容性验证，绿了合并即完成升级
+- 基线跟进：上游发版后用 `npm run upstream` 看变更，确认无碍再抬 `devDependencies`、重新生成 lockfile
+
+三者的分工：**金丝雀是真正的安全网**——基线落后也照样用最新版 pi 验证，所以上游发版后两天内就会暴露问题；基线只决定 push/PR 那趟测的是哪一版。
+
+基线跟进没有交给 Dependabot：它配了 `@earendil-works/*` 分组，但 2026-10-12 上游发 1.2.0 之后，它连着两趟（10-14）都判成「No update needed」——日志里甚至已经探到了 1.2.0 的 tarball，仍认为最新版是 1.1.0。历史上升级 PR 也只开出过一次（#6），还在 10-08 被手工升级顶掉了。所以基线以手工跟进为准；它真开出 PR 就当多一次验证，没开也不会漏，金丝雀兜底。
 
 Node 版本要求跟随 pi，由 pi 自己声明和检查。
 
@@ -102,9 +106,11 @@ Node 版本要求跟随 pi，由 pi 自己声明和检查。
 npm install
 ./node_modules/.bin/tsc -p .   # 类型检查
 
-# 本地试跑
-pi --no-session -e ./extensions/index.ts -p "hi"
+# 本地试跑（进 TUI 才看得到汉化）
+pi --no-session -e ./extensions/index.ts
 ```
+
+汉化只在 TUI 模式生效。`-p`（print）和 `--json` 是无 UI 模式——pi 给扩展绑定的 `ctx.hasUI` 为 false，扩展第一行就返回了，什么都不替换。拿 `-p` 试跑只能验证「能加载」，看不到中文，别误以为插件没生效。
 
 所有文案都集中在 [`extensions/zh.ts`](extensions/zh.ts)，想改词只动这一个文件就够了。
 只是不满意某几处译法、并不想接手维护的话，用[改词](#改词)那节的覆盖机制更省事——
