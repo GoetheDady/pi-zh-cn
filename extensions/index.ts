@@ -9,6 +9,9 @@
  * - 内置 read/bash/edit/write/grep/find/ls/powershell 工具的渲染文案
  *   （同名重注册，执行委托原实现）→ localized-tools.ts，共享模板在 tool-renders.ts
  *
+ * 词条集中在 zh.ts；用户可在 pi 的 settings.json 里用
+ * `pi-zh-cn.copy` 覆盖其中任意字符串条目，无需改源码 → copy-overrides.ts
+ *
  * 不改动发给模型的内容（工具 description 保持英文）。
  */
 
@@ -18,6 +21,7 @@ import { applyUiCopy } from "./ui-copy.ts";
 import { setChineseHeader } from "./header.ts";
 import { setupChineseFooter } from "./footer.ts";
 import { registerLocalizedTools } from "./localized-tools.ts";
+import { applyCopyOverrides } from "./copy-overrides.ts";
 
 /**
  * 扩展入口（由 pi 扩展加载器调用）。
@@ -46,6 +50,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (!ctx.hasUI) return;
 
+    // 先应用词条覆盖：下面 registerLocalizedTools 会把当时读到的文案捕获进
+    // 注册参数，之后再改 zh 就对它无效了。
+    applyCopyOverrides(ctx);
     applyUiCopy(ctx);
     setChineseHeader(ctx);
     const toggle = setupChineseFooter(ctx);
