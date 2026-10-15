@@ -31,6 +31,11 @@ import {
 /** write 工具折叠态预览的行数（与内置 write 渲染器一致）。 */
 const WRITE_PREVIEW_LINES = 10;
 
+// grep / find / ls 折叠态显示的结果行数，取内置渲染器同样的值
+// （renderers/grep.js 用 15，find.js / ls.js 用 20）。
+const GREP_PREVIEW_LINES = 15;
+const LIST_PREVIEW_LINES = 20;
+
 /**
  * 重注册所有内置工具的中文渲染。
  *
@@ -185,9 +190,12 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
           found: zh.tools.grep.matches,
           limit: zh.tools.grep.matchLimit,
           truncated: zh.tools.grep.truncated,
+          moreLines: zh.tools.grep.moreLines,
+          expand: zh.tools.grep.expand,
         },
         "No matches found",
         "matchLimitReached",
+        GREP_PREVIEW_LINES,
       ),
     });
   }
@@ -211,9 +219,12 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
           found: zh.tools.find.results,
           limit: zh.tools.find.resultLimit,
           truncated: zh.tools.grep.truncated,
+          moreLines: zh.tools.find.moreLines,
+          expand: zh.tools.find.expand,
         },
         "No files found matching pattern",
         "resultLimitReached",
+        LIST_PREVIEW_LINES,
       ),
     });
   }
@@ -236,9 +247,12 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
           found: zh.tools.ls.entries,
           limit: zh.tools.ls.entryLimit,
           truncated: zh.tools.grep.truncated,
+          moreLines: zh.tools.ls.moreLines,
+          expand: zh.tools.ls.expand,
         },
         "(empty directory)",
         "entryLimitReached",
+        LIST_PREVIEW_LINES,
       ),
     });
   }

@@ -326,6 +326,70 @@ test("上游仍把最终结果耗时送到渲染上下文（耗时文案的依�
   );
 });
 
+test("grep 渲染：折叠态显示命中行，超出上限才提示展开", async () => {
+  const dir = tmpProject();
+  try {
+    // 展开提示走 keyHint，它读全局 theme 单例，未初始化会抛错。
+    initTheme("dark");
+    // 30 行命中，超过折叠态上限（内置 grep 渲染器取 15）
+    writeFileSync(
+      join(dir, "many.txt"),
+      Array.from({ length: 30 }, (_, i) => `needle ${i}`).join("\n"),
+    );
+    const grep = registerAll(dir).get("grep");
+    const args = { pattern: "needle", path: dir };
+    const result = await run(grep, args);
+    const lines = textOf(result).trim().split("\n");
+    assert.equal(lines.length, 30, `夹具应产生 30 行命中，实际 ${lines.length}`);
+
+    const render = (expanded: boolean) =>
+      grep
+        .renderResult(
+          result,
+          { expanded, isPartial: false },
+          plainTheme,
+          renderCtx(args, dir, expanded),
+        )
+        .render(120)
+        .join("\n");
+
+    // 本地化后折叠态一度只给「30 行结果」，命中内容一行看不到。
+    const collapsed = render(false);
+    assert.match(collapsed, /needle 0\b/, `折叠态应显示命中行，实际：\n${collapsed}`);
+    assert.match(collapsed, /needle 14\b/, "折叠态应显示到第 15 行");
+    assert.doesNotMatch(collapsed, /needle 15\b/, "折叠态不应显示第 16 行");
+    assert.ok(
+      collapsed.includes(zh.tools.grep.moreLines(15)),
+      `折叠态应提示还有 15 行，实际：\n${collapsed}`,
+    );
+    assert.match(collapsed, /展开/, "展开提示应为中文");
+
+    const expanded = render(true);
+    assert.match(expanded, /needle 29\b/, `展开态应显示全部命中，实际：\n${expanded}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("grep 渲染：无匹配时不显示结果行，只给中文提示", async () => {
+  const dir = tmpProject();
+  try {
+    const grep = registerAll(dir).get("grep");
+    const args = { pattern: "zzzz-no-such-thing", path: dir };
+    const result = await run(grep, args);
+    const out = grep
+      .renderResult(result, { expanded: false, isPartial: false }, plainTheme, renderCtx(args, dir))
+      .render(120)
+      .join("\n");
+
+    assert.ok(out.includes(zh.tools.grep.noMatches), `应显示中文无匹配文案，实际：${out}`);
+    assert.doesNotMatch(out, /No matches found/, "哨兵串不应漏给用户");
+    assert.doesNotMatch(out, /还有/, "无匹配时不应出现展开提示");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("edit：折叠态回落内置 diff 渲染（本地化不吞掉改动内容）", async () => {
   const dir = tmpProject();
   try {
