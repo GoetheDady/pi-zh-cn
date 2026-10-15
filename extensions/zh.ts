@@ -50,10 +50,37 @@ export const zh = {
   // 启动 header
   header: {
     // 折叠态提示行（与内置一致：" · " 分隔）
-    interrupt: "中断",
-    clearExit: "清空/退出",
-    commands: "命令菜单",
-    more: "更多",
+    compact: {
+      interrupt: "中断",
+      clearExit: "清空/退出",
+      commands: "命令菜单",
+      more: "更多",
+    },
+    // 展开态（ctrl+o）：内置的完整键位参考表，每行一条。键位本身由
+    // keyHint/rawKeyHint 跟随用户配置，这里只译说明文字。
+    expanded: {
+      interrupt: "中断",
+      clear: "清空",
+      exit: "退出",
+      twice: "两次",
+      exitEmpty: "退出（输入框为空时）",
+      suspend: "挂起",
+      deleteToLineEnd: "删除到行尾",
+      cycleThinking: "切换思考等级",
+      cycleModels: "切换模型",
+      selectModel: "选择模型",
+      expandTools: "展开工具输出",
+      expandThinking: "展开思考内容",
+      externalEditor: "打开外部编辑器",
+      commands: "命令菜单",
+      bash: "执行 bash",
+      bashNoContext: "执行 bash（不带上下文）",
+      followUp: "排队追加消息",
+      dequeue: "编辑全部排队消息",
+      pasteImage: "粘贴文件（macOS）/ 图片 / 文本",
+      dropFiles: "拖入文件",
+      attach: "附加文件",
+    },
     expandHelp: "按下上述按键查看完整启动帮助与已加载资源",
     onboarding:
       "Pi 能解释自身的功能、查阅自己的文档——想知道怎么用、怎么扩展，直接问它。",
