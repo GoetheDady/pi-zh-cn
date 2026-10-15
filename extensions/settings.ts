@@ -27,6 +27,17 @@ export function globalSettingsFile(): string {
 }
 
 /**
+ * 项目本地设置文件路径。
+ *
+ * 不论项目是否受信任都返回同一个路径——调用方自己决定该不该读它。`/zh` 的
+ * 自诊断需要报告「这一层被跳过了，因为项目未受信任」，所以得知道路径才能说
+ * 清楚是哪个文件没读。
+ */
+export function projectSettingsFile(cwd: string): string {
+  return join(cwd, CONFIG_DIR_NAME, "settings.json");
+}
+
+/**
  * 按优先级从低到高返回设置文件路径（先全局，后项目本地）。
  *
  * @param ctx 当前会话上下文
@@ -34,7 +45,7 @@ export function globalSettingsFile(): string {
 export function settingsFiles(ctx: ExtensionContext): string[] {
   const paths = [globalSettingsFile()];
   if (ctx.isProjectTrusted()) {
-    paths.push(join(ctx.cwd, CONFIG_DIR_NAME, "settings.json"));
+    paths.push(projectSettingsFile(ctx.cwd));
   }
   return paths;
 }

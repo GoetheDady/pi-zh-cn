@@ -13,12 +13,18 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyCopyOverrides } from "../extensions/copy-overrides.ts";
+import {
+  applyCopyOverrides,
+  describeLocalization,
+} from "../extensions/copy-overrides.ts";
 import { zh } from "../extensions/zh.ts";
 import { ENV_AGENT_DIR } from "./helpers.ts";
 
 /**
- * 在临时目录里摆好设置文件跑一次覆盖，返回收到的提示。
+ * 在临时目录里摆好设置文件跑一次覆盖，返回收到的提示与 `/zh` 的诊断正文。
+ *
+ * 诊断正文要在临时目录删掉之前取——describeLocalization 读的是模块里存的
+ * 最近一次报告，但层列表里带着路径，早点取出来断言更直观。
  *
  * @param settings 全局 settings.json 的内容；传字符串可模拟坏 JSON，传
  *   undefined 表示不建这个文件
@@ -27,11 +33,12 @@ import { ENV_AGENT_DIR } from "./helpers.ts";
 function runOverrides(
   settings: unknown,
   opts: { trusted?: boolean; project?: unknown } = {},
-): string[] {
+): { notices: string[]; text: string } {
   const agentDir = mkdtempSync(join(tmpdir(), "pi-zh-cn-agent-"));
   const cwd = mkdtempSync(join(tmpdir(), "pi-zh-cn-cwd-"));
   const previous = process.env[ENV_AGENT_DIR];
   const notices: string[] = [];
+  let text = "";
   try {
     process.env[ENV_AGENT_DIR] = agentDir;
     if (settings !== undefined) {
@@ -52,13 +59,14 @@ function runOverrides(
       isProjectTrusted: () => opts.trusted === true,
       ui: { notify: (message: string) => notices.push(message) },
     } as any);
+    text = describeLocalization();
   } finally {
     if (previous === undefined) delete process.env[ENV_AGENT_DIR];
     else process.env[ENV_AGENT_DIR] = previous;
     rmSync(agentDir, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   }
-  return notices;
+  return { notices, text };
 }
 
 test("覆盖生效：按 zh.ts 的结构深合并，未提到的条目不动", () => {
@@ -71,7 +79,7 @@ test("覆盖生效：按 zh.ts 的结构深合并，未提到的条目不动", (
     failed: zh.tools.bash.failed,
   };
   try {
-    const notices = runOverrides({
+    const { notices } = runOverrides({
       "pi-zh-cn": {
         copy: {
           footer: { cwdPrefix: "目录：" },
@@ -102,7 +110,7 @@ test("覆盖生效：按 zh.ts 的结构深合并，未提到的条目不动", (
 
 test("函数条目与拼错的键名都不生效，全落空时提示一次", () => {
   const before = zh.tools.bash.lines(3);
-  const notices = runOverrides({
+  const { notices } = runOverrides({
     // lines 是函数（要拼数字），JSON 表达不了；donee 是 done 的错拼。
     "pi-zh-cn": { copy: { tools: { bash: { lines: "X 行", donee: "错别字" } } } },
   });
@@ -115,7 +123,7 @@ test("函数条目与拼错的键名都不生效，全落空时提示一次", ()
 
 test("settings.json 坏掉：提示一次且不改动词条", () => {
   const before = zh.footer.cwdPrefix;
-  const notices = runOverrides("{ 这不是合法 JSON");
+  const { notices } = runOverrides("{ 这不是合法 JSON");
 
   assert.equal(zh.footer.cwdPrefix, before, "解析失败时不该改任何条目");
   assert.equal(notices.length, 1);
@@ -144,7 +152,7 @@ test("项目本地设置覆盖全局；项目不受信任时不读它", () => {
 
 test("没有设置文件：静默跳过，不打扰用户", () => {
   const before = zh.footer.cwdPrefix;
-  const notices = runOverrides(undefined);
+  const { notices } = runOverrides(undefined);
 
   assert.deepEqual(notices, [], "没写过设置的人不该收到任何提示");
   assert.equal(zh.footer.cwdPrefix, before);
@@ -169,4 +177,77 @@ test("删掉覆盖后再次应用，译法回到默认（不残留到重启为�
   } finally {
     zh.footer.cwdPrefix = original;
   }
+});
+
+test("/zh：列出各层读取结果，并逐条列出生效的覆盖", () => {
+  const { text } = runOverrides({
+    "pi-zh-cn": {
+      copy: {
+        footer: { cwdPrefix: "目录：" },
+        tools: { bash: { done: "跑完了" } },
+      },
+    },
+  });
+
+  assert.match(text, /词条覆盖：/, "应给出覆盖小节");
+  assert.match(text, /全局 .*settings\.json — 生效 2 条/, `全局层应报生效条数：\n${text}`);
+  // 点分路径要能看到，否则用户不知道哪条在起作用。
+  assert.match(text, /footer\.cwdPrefix/, `应列出生效条目的路径：\n${text}`);
+  assert.match(text, /tools\.bash\.done/, `应列出生效条目的路径：\n${text}`);
+  assert.match(text, /需 \/reload/, "应提示改动何时生效");
+});
+
+test("/zh：项目未受信任时写明该层没读，而不是让用户猜", () => {
+  const { text } = runOverrides(
+    {},
+    {
+      trusted: false,
+      project: { "pi-zh-cn": { copy: { footer: { cwdPrefix: "项目：" } } } },
+    },
+  );
+
+  // 这是最容易让人困惑的一种「改了没反应」：文件在那儿、内容也对，就是被信任
+  // 边界挡下了。报出来才知道该去信任项目，而不是反复改设置。
+  assert.match(
+    text,
+    /未读取（项目未受信任）/,
+    `应写明项目层被信任边界挡下：\n${text}`,
+  );
+  assert.match(text, /当前没有生效的覆盖/, "此时确实没有覆盖生效");
+});
+
+test("/zh：解析失败与无覆盖内容各报在自己的层上", () => {
+  const broken = runOverrides("{ 这不是合法 JSON").text;
+  assert.match(broken, /全局 .*— 解析失败/, `应把解析失败归到全局层：\n${broken}`);
+
+  const empty = runOverrides({ theme: "dark" }).text;
+  assert.match(
+    empty,
+    /全局 .*— 无覆盖内容/,
+    `文件在但没写 copy 段时应如实说明：\n${empty}`,
+  );
+});
+
+test("/zh：层按应用顺序排列，重复覆盖的键只列一次", () => {
+  const layer = (path: string) => ({ "pi-zh-cn": { copy: { footer: { cwdPrefix: path } } } });
+
+  // 未受信任时，被跳过的项目层仍要出现在它该在的位置（全局之后），否则报告
+  // 的顺序和应用顺序对不上，读起来像是项目设置先被考虑。
+  const untrusted = runOverrides(layer("全局："), {
+    trusted: false,
+    project: layer("项目："),
+  }).text;
+  const lines = untrusted.split("\n");
+  const globalAt = lines.findIndex((l) => l.includes("全局 ") && l.includes("生效"));
+  const projectAt = lines.findIndex((l) => l.includes("项目 ") && l.includes("未读取"));
+  assert.ok(globalAt >= 0 && projectAt >= 0, `两层都该出现：\n${untrusted}`);
+  assert.ok(globalAt < projectAt, `全局应排在项目之前：\n${untrusted}`);
+
+  // 两层覆盖同一个键时它只算一条生效（项目胜出），列两遍会让人以为自己写重了。
+  const both = runOverrides(layer("全局："), {
+    trusted: true,
+    project: layer("项目："),
+  }).text;
+  const listed = both.split("\n").filter((l) => l.trim() === "footer.cwdPrefix");
+  assert.equal(listed.length, 1, `同一键只该列一次：\n${both}`);
 });
