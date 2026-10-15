@@ -223,6 +223,83 @@ export function applyCopyOverrides(ctx: ExtensionContext): void {
 }
 
 /**
+ * 所有可被覆盖的词条路径（点分，如 `tools.bash.done`）。
+ *
+ * 从 zh 表当场推出来，而不是另维护一份清单——两份清单迟早对不上，而用户按
+ * 错的路径去写覆盖只会得到「改了没反应」。
+ *
+ * 只收字符串叶子：`zh` 里的函数条目（要拼数字，如「N 行输出」）JSON 表达不了，
+ * mergeOverrides 也不接受，所以不算可覆盖。
+ */
+export function copyKeyPaths(): string[] {
+  const paths: string[] = [];
+  const walk = (node: any, prefix: string) => {
+    for (const [key, value] of Object.entries(node ?? {})) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (typeof value === "string") paths.push(path);
+      else if (value !== null && typeof value === "object") walk(value, path);
+    }
+  };
+  walk(zh, "");
+  return paths;
+}
+
+/** zh 里不可覆盖的函数条目数（报给用户，免得他们去试）。 */
+function functionLeafCount(): number {
+  let count = 0;
+  const walk = (node: any) => {
+    for (const value of Object.values(node ?? {})) {
+      if (typeof value === "function") count += 1;
+      else if (value !== null && typeof value === "object") walk(value);
+    }
+  };
+  walk(zh);
+  return count;
+}
+
+/**
+ * `/zh keys` 的正文：把所有可覆盖的词条按父级分组列出来。
+ *
+ * 分组用父级路径（如 `tools.bash`）而不是顶层分区：一是 `tools` 一个区就有
+ * 六十多条，平铺没法看；二是分组的形状正好就是用户要写的嵌套 JSON 的形状。
+ *
+ * @param filter 只看路径里含该子串的条目；留空则全列
+ */
+export function describeCopyKeys(filter?: string): string {
+  const all = copyKeyPaths();
+  const needle = filter?.trim();
+  const shown = needle ? all.filter((p) => p.includes(needle)) : all;
+
+  if (shown.length === 0) {
+    return `pi-zh-cn：没有路径含「${needle}」的词条。不带参数运行 /zh keys 可看全部 ${all.length} 条。`;
+  }
+
+  const groups = new Map<string, string[]>();
+  for (const path of shown) {
+    const cut = path.lastIndexOf(".");
+    const parent = cut === -1 ? "（顶层）" : path.slice(0, cut);
+    if (!groups.has(parent)) groups.set(parent, []);
+    groups.get(parent)!.push(cut === -1 ? path : path.slice(cut + 1));
+  }
+
+  const functions = functionLeafCount();
+  const head = needle
+    ? `pi-zh-cn 可覆盖的词条：匹配「${needle}」的 ${shown.length} 条（共 ${all.length} 条）`
+    : `pi-zh-cn 可覆盖的词条：共 ${all.length} 条`;
+  const lines = [
+    head,
+    `另有 ${functions} 条是函数（要拼数字，如「N 行输出」），JSON 表达不了，覆盖不了。`,
+    "",
+  ];
+  for (const [parent, leaves] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+    lines.push(`${parent}（${leaves.length}）`);
+    lines.push(`  ${leaves.join(", ")}`);
+  }
+  lines.push("", "写法见 README 的「改词」一节；改完需 /reload 或新开会话。");
+  return lines.join("\n");
+}
+
+/**
  * `/zh` 的正文：词条覆盖各层读到了什么、哪些条目生效、以及终端能力。
  *
  * 存在的理由是覆盖有两种「静默失败」——项目未受信任时整层被跳过、键名拼错只
@@ -262,6 +339,7 @@ export function describeLocalization(): string {
     "",
     `终端：${capabilities.hyperlinks ? "支持" : "不支持"}可点击文件链接，${capabilities.trueColor ? "支持" : "不支持"}真彩色`,
     "",
+    "想看能覆盖哪些词条：/zh keys（可按子串过滤，如 /zh keys bash）。",
     "改动 settings.json 后需 /reload 或新开会话才生效。",
   );
 

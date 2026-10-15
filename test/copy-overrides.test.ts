@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyCopyOverrides,
+  copyKeyPaths,
+  describeCopyKeys,
   describeLocalization,
 } from "../extensions/copy-overrides.ts";
 import { zh } from "../extensions/zh.ts";
@@ -250,4 +252,61 @@ test("/zh：层按应用顺序排列，重复覆盖的键只列一次", () => {
   }).text;
   const listed = both.split("\n").filter((l) => l.trim() === "footer.cwdPrefix");
   assert.equal(listed.length, 1, `同一键只该列一次：\n${both}`);
+});
+
+test("/zh keys：报出的每一条都真的能覆盖（清单不能是空头支票）", () => {
+  const paths = copyKeyPaths();
+  assert.ok(paths.length > 50, `可覆盖词条数看着不对：${paths.length}`);
+  assert.equal(new Set(paths).size, paths.length, "路径不该重复");
+
+  // 把所有路径塞进一份 settings.json 一次性应用。全部命中也才算数——少一条
+  // 就说明 /zh keys 报了个实际覆盖不了的路径（点分拼接错层级或分隔符），
+  // 那用户照着写只会得到「改了没反应」。
+  const copy: any = {};
+  for (const path of paths) {
+    const parts = path.split(".");
+    let node = copy;
+    for (const part of parts.slice(0, -1)) node = node[part] ??= {};
+    node[parts[parts.length - 1]] = "覆盖值";
+  }
+
+  try {
+    const { text } = runOverrides({ "pi-zh-cn": { copy } });
+    assert.match(
+      text,
+      new RegExp(`生效 ${paths.length} 条`),
+      `列出的 ${paths.length} 条应全部生效，实际报告：\n${text}`,
+    );
+  } finally {
+    // 这条用例把 117 条全改成了「覆盖值」，恢复默认免得影响同文件其他用例。
+    runOverrides(undefined);
+  }
+});
+
+test("/zh keys：函数条目不算可覆盖，分组与过滤都对", () => {
+  const paths = copyKeyPaths();
+  assert.ok(paths.includes("tools.bash.label"), "字符串条目应在清单里");
+  assert.ok(
+    !paths.includes("tools.bash.lines"),
+    "函数条目（要拼数字）JSON 表达不了，不该列进可覆盖清单",
+  );
+
+  const all = describeCopyKeys();
+  assert.match(all, /共 \d+ 条/);
+  assert.match(all, /另有 \d+ 条是函数/, "应说明有多少条覆盖不了，免得用户去试");
+  assert.match(all, /^tools\.bash（\d+）$/m, `应按父级分组：\n${all}`);
+
+  const filtered = describeCopyKeys("bash");
+  assert.match(filtered, /匹配「bash」的 \d+ 条/);
+  assert.ok(
+    !filtered.includes("footer.cwdPrefix"),
+    `过滤后不该混入无关分组：\n${filtered}`,
+  );
+
+  assert.match(describeCopyKeys("zzz没有这个"), /没有路径含/, "无匹配时要说清楚");
+});
+
+test("/zh 状态里指了路，用户不必去读源码找键名", () => {
+  const { text } = runOverrides(undefined);
+  assert.match(text, /\/zh keys/, `状态输出应指向 /zh keys：\n${text}`);
 });
