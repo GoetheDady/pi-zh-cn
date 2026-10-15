@@ -28,6 +28,7 @@ import { zh } from "./zh.ts";
 import {
   countResultRender,
   notePartial,
+  renderToolPath,
   shellRenders,
 } from "./tool-renders.ts";
 
@@ -90,9 +91,9 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
     ...createReadTool(cwd),
     label: zh.tools.read.label,
 
-    renderCall(args: any, theme: any) {
+    renderCall(args: any, theme: any, context?: { cwd?: string }) {
       let text = theme.fg("toolTitle", theme.bold(`${zh.tools.read.title} `));
-      text += theme.fg("accent", args.path);
+      text += renderToolPath(args.path, theme, context?.cwd ?? "");
       if (args.offset || args.limit) {
         const parts: string[] = [];
         if (args.offset) parts.push(`offset=${args.offset}`);
@@ -162,9 +163,9 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
     // 框架会拿 contentBox 自动套上同一套 bgFn（见 tool-execution.js 的
     // updateDisplay），色带就回来了，且不必复刻上游的 Box 组件。
 
-    renderCall(args: any, theme: any) {
+    renderCall(args: any, theme: any, context?: { cwd?: string }) {
       let text = theme.fg("toolTitle", theme.bold(zh.tools.edit.title));
-      text += theme.fg("accent", args.path);
+      text += renderToolPath(args.path, theme, context?.cwd ?? "");
       return new Text(text, 0, 0);
     },
 
@@ -185,7 +186,7 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
       while (end > 0 && rawLines[end - 1] === "") end--;
 
       let text = theme.fg("toolTitle", theme.bold(zh.tools.write.title));
-      text += theme.fg("accent", args.path);
+      text += renderToolPath(args.path, theme, context.cwd ?? "");
       text += theme.fg("dim", ` (${zh.tools.write.lines(end)})`);
 
       if (end > 0) {
@@ -275,9 +276,9 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
       ...createLsTool(cwd),
       label: zh.tools.ls.label,
 
-      renderCall(args: any, theme: any) {
+      renderCall(args: any, theme: any, context?: { cwd?: string }) {
         let text = theme.fg("toolTitle", theme.bold(zh.tools.ls.title));
-        text += theme.fg("accent", args.path || ".");
+        text += renderToolPath(args.path, theme, context?.cwd ?? "", ".");
         return new Text(text, 0, 0);
       },
 

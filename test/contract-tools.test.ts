@@ -27,8 +27,15 @@ import {
   formatSize,
   initTheme,
 } from "@earendil-works/pi-coding-agent";
+import { homedir } from "node:os";
+import { pathToFileURL } from "node:url";
+import { getCapabilities } from "@earendil-works/pi-tui";
 import { registerLocalizedTools } from "../extensions/localized-tools.ts";
-import { formatToolDuration, shellRenders } from "../extensions/tool-renders.ts";
+import {
+  formatToolDuration,
+  renderToolPath,
+  shellRenders,
+} from "../extensions/tool-renders.ts";
 import { zh } from "../extensions/zh.ts";
 import { readDist } from "./helpers.ts";
 
@@ -481,6 +488,40 @@ test("上游仍把最终结果耗时送到渲染上下文（耗时文案的依�
     /durationMs:\s*this\.isPartial\s*\?\s*undefined\s*:\s*this\.result\?\.durationMs/,
     "tool-execution 不再向渲染上下文填 durationMs，zh.tools.*.took 会静默失效",
   );
+});
+
+test("renderToolPath：家目录缩成 ~、可点击、空值与 null 有兜底", () => {
+  initTheme("dark");
+  const dir = process.cwd();
+  const linkOf = (s: string) =>
+    s.match(/\u001b\]8;;([^\u001b]*)\u001b\\/)?.[1];
+  const visible = (s: string) =>
+    s.replace(/\u001b\]8;;[^\u001b]*\u001b\\/g, "").replace(/\u001b\[[\d;]*m/g, "");
+
+  // 与内置 shortenPath 一致：家目录缩成 ~，其余绝对路径原样。
+  assert.equal(
+    visible(renderToolPath(join(homedir(), "some.txt"), plainTheme, dir)),
+    "~/some.txt",
+  );
+  assert.equal(visible(renderToolPath("/etc/hosts", plainTheme, dir)), "/etc/hosts");
+
+  // 相对路径按 cwd 解析成 file:// 链接（OSC 8）；终端不支持时退化为纯文本。
+  const linked = renderToolPath("extensions/zh.ts", plainTheme, dir);
+  if (getCapabilities().hyperlinks) {
+    assert.equal(
+      linkOf(linked),
+      pathToFileURL(join(dir, "extensions/zh.ts")).href,
+      "应给出指向该文件的 file:// 链接",
+    );
+    assert.equal(visible(linked), "extensions/zh.ts", "显示文本不应含链接转义");
+  } else {
+    assert.equal(linkOf(linked), undefined, "终端不支持时不应加链接");
+  }
+
+  // 空路径与显式 null 的兜底（ls 传 "." 作为空路径替身）。
+  assert.equal(visible(renderToolPath(undefined, plainTheme, dir)), "...");
+  assert.equal(visible(renderToolPath(undefined, plainTheme, dir, ".")), ".");
+  assert.equal(visible(renderToolPath(null, plainTheme, dir)), "[invalid arg]");
 });
 
 test("read 渲染：展开态按语言高亮，识别不出语言时退回弱化原文", async () => {
