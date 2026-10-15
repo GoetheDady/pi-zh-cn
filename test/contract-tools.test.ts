@@ -588,6 +588,24 @@ test("grep 渲染：无匹配时不显示结果行，只给中文提示", async 
   }
 });
 
+test("edit：不设 renderShell，交给框架提供状态色带", () => {
+  const dir = tmpProject();
+  try {
+    const plugin = registerAll(dir).get("edit");
+    // renderShell: "self" 会让框架改用无背景的 selfRenderContainer。上游 edit
+    // 声明它是为了在 renderCall 里自己画 Box 补色带，我们的 renderCall 只返回
+    // 裸 Text，于是八种工具里只有 edit 没有状态背景色。用默认 shell 时框架会
+    // 拿 contentBox 自动套 bgFn（tool-execution.js 的 updateDisplay）。
+    assert.notEqual(
+      plugin.renderShell,
+      "self",
+      "edit 设了 renderShell: self 会丢掉状态色带",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("edit：折叠态回落内置 diff 渲染（本地化不吞掉改动内容）", async () => {
   const dir = tmpProject();
   try {

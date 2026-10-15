@@ -156,7 +156,11 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
   pi.registerTool({
     ...createEditTool(cwd),
     label: zh.tools.edit.label,
-    renderShell: "self",
+    // 刻意不设 renderShell: "self"。上游 edit 声明它是为了自己用 Box 画那条
+    // 状态色带（pending 黄 / 成功绿 / 失败红），而我们的 renderCall 只返回一个
+    // 裸 Text，于是色带整个丢了——八种工具里只有 edit 没有。用默认 shell 时
+    // 框架会拿 contentBox 自动套上同一套 bgFn（见 tool-execution.js 的
+    // updateDisplay），色带就回来了，且不必复刻上游的 Box 组件。
 
     renderCall(args: any, theme: any) {
       let text = theme.fg("toolTitle", theme.bold(zh.tools.edit.title));
