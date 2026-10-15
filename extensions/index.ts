@@ -21,7 +21,11 @@ import { applyUiCopy } from "./ui-copy.ts";
 import { setChineseHeader } from "./header.ts";
 import { setupChineseFooter } from "./footer.ts";
 import { registerLocalizedTools } from "./localized-tools.ts";
-import { applyCopyOverrides, describeLocalization } from "./copy-overrides.ts";
+import {
+  applyCopyOverrides,
+  describeCopyKeys,
+  describeLocalization,
+} from "./copy-overrides.ts";
 
 /**
  * 扩展入口（由 pi 扩展加载器调用）。
@@ -49,10 +53,18 @@ export default function (pi: ExtensionAPI) {
 
   // 词条覆盖有两种静默失败（项目未受信任时整层跳过、键名拼错只在启动提示一次），
   // 用户看到「改了没反应」时无从下手；这条命令把各层读到了什么直接摊开。
+  // `/zh keys` 再补上另一半：能覆盖哪些词条——否则用户得去读 zh.ts 才知道键名。
   pi.registerCommand("zh", {
-    description: "查看汉化状态与词条覆盖情况",
-    handler: async (_args, ctx) => {
-      ctx.ui.notify(describeLocalization());
+    description: "查看汉化状态与词条覆盖情况（/zh keys 列出可覆盖的词条）",
+    handler: async (args, ctx) => {
+      const rest = args.trim();
+      if (rest === "keys" || rest.startsWith("keys ")) {
+        ctx.ui.notify(describeCopyKeys(rest.slice("keys".length).trim()));
+      } else if (rest === "") {
+        ctx.ui.notify(describeLocalization());
+      } else {
+        ctx.ui.notify("pi-zh-cn：/zh 看状态，/zh keys [过滤词] 看可覆盖的词条。");
+      }
     },
   });
 
