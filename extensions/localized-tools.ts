@@ -20,6 +20,7 @@ import {
   highlightCode,
   keyHint,
   type BashToolDetails,
+  type GrepToolDetails,
   type ReadToolDetails,
   type TruncationResult,
 } from "@earendil-works/pi-coding-agent";
@@ -39,6 +40,23 @@ const WRITE_PREVIEW_LINES = 10;
 // （renderers/grep.js 用 15，find.js / ls.js 用 20）。
 const GREP_PREVIEW_LINES = 15;
 const LIST_PREVIEW_LINES = 20;
+
+/**
+ * 移除 grep 输出末尾已由中文界面呈现的英文附注，保留匹配行和上下文。
+ *
+ * @param output 上游工具输出原文
+ * @param details 上游工具标记的匹配上限或截断信息
+ * @returns 用于计数和预览的搜索内容
+ */
+function grepDisplayOutput(output: string, details: GrepToolDetails): string {
+  if (!details.matchLimitReached && !details.truncation?.truncated && !details.linesTruncated) {
+    return output;
+  }
+  return output.replace(
+    /\n\n\[(?:\d+ matches limit reached\b|\d+(?:\.\d+)?\s?(?:B|KB|MB) limit reached\b|Some lines truncated to \d+ chars\b)[^\r\n]*\]$/,
+    "",
+  );
+}
 
 /**
  * read 的截断提示，三种形态对齐内置 read 渲染器：首行就超字节上限、
@@ -238,6 +256,7 @@ export function registerLocalizedTools(pi: ExtensionAPI, cwd: string) {
         "No matches found",
         "matchLimitReached",
         GREP_PREVIEW_LINES,
+        grepDisplayOutput,
       ),
     });
   }

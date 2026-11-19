@@ -340,6 +340,7 @@ export function shellRenders(w: ShellCopy, extraRe: RegExp[] = []) {
  *   （matchLimitReached / resultLimitReached / entryLimitReached）
  * @param maxCollapsedLines 折叠态最多显示的结果行数（对齐上游：grep 15、
  *   find/ls 20）
+ * @param displayOutput 可选的显示文本转换，只影响摘要与预览，不改工具结果
  */
 export function countResultRender(
   labels: {
@@ -354,6 +355,7 @@ export function countResultRender(
   sentinel: string,
   limitField: string,
   maxCollapsedLines: number,
+  displayOutput: (output: string, details: any) => string = (output) => output,
 ) {
   return (
     result: any,
@@ -362,7 +364,7 @@ export function countResultRender(
   ): Text => {
     if (isPartial) return notePartial(labels.searching, theme);
     const details = result.details ?? {};
-    const output = textOf(result);
+    const output = displayOutput(textOf(result), details);
     const isEmpty = output === sentinel;
     let text = theme.fg(
       isEmpty ? "muted" : "success",
