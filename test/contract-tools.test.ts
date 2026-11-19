@@ -727,11 +727,12 @@ test("grep：无匹配哨兵串与 matchLimitReached 字段", async () => {
     // countResultRender 靠哨兵串识别「无匹配」；上游改文案时报警。
     assert.equal(textOf(none), "No matches found", "grep 无匹配哨兵串变了，需核对 countResultRender 调用");
 
-    const limited = await run(tool, { pattern: "alpha", path: dir, limit: 1 });
+    writeFileSync(join(dir, "multiple-matches.txt"), "limit-probe\nlimit-probe\n");
+    const limited = await run(tool, { pattern: "limit-probe", path: dir, limit: 1 });
     assert.equal(
-      typeof limited.details?.matchLimitReached,
-      "number",
-      "matchLimitReached 字段缺失，zh.tools.grep.matchLimit 需核对",
+      limited.details?.matchLimitReached,
+      1,
+      "截掉匹配结果时应返回匹配上限，供中文提示使用",
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
