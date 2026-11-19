@@ -610,6 +610,32 @@ test("grep 渲染：折叠态显示命中行，超出上限才提示展开", asy
   }
 });
 
+test("grep 渲染：保留匹配和上下文，只显示中文上限提示", async () => {
+  const dir = tmpProject();
+  try {
+    writeFileSync(join(dir, "context.txt"), "needle first\ncontext line\nneedle second\n");
+    const grep = registerAll(dir).get("grep");
+    const args = { pattern: "needle", path: join(dir, "context.txt"), limit: 1, context: 1 };
+    const result = await run(grep, args);
+    const original = textOf(result);
+    assert.match(original, /matches limit reached/);
+
+    const rendered = grep
+      .renderResult(result, { expanded: true, isPartial: false }, plainTheme, renderCtx(args, dir, true))
+      .render(120)
+      .join("\n");
+
+    assert.match(rendered, /2 行结果/);
+    assert.match(rendered, /needle first/);
+    assert.match(rendered, /context line/);
+    assert.ok(rendered.includes(zh.tools.grep.matchLimit(1)));
+    assert.doesNotMatch(rendered, /matches limit reached/);
+    assert.equal(textOf(result), original);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("grep 渲染：无匹配时不显示结果行，只给中文提示", async () => {
   const dir = tmpProject();
   try {

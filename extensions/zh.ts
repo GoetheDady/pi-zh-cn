@@ -153,7 +153,7 @@ export const zh = {
       searching: "搜索中…",
       noMatches: "未找到匹配内容",
       matches: (n: number) => `${n} 行结果`,
-      matchLimit: (n: number) => `（达到 ${n} 条匹配上限）`,
+      matchLimit: (n: number) => `（达到 ${n} 条匹配上限，可增大 limit 或缩小搜索范围）`,
       truncated: "（部分行已截断）",
       moreLines: (n: number) => `…（还有 ${n} 行，`,
       expand: "展开",
