@@ -70,6 +70,81 @@ export function setupChineseFooter(ctx: ExtensionContext): (() => void) | undefi
       );
 
       const home = homedir();
+
+      // —— usage 增量缓存 ——
+      // 长会话里 render 每次全量遍历 entries 是 O(n)，而全屏滚动会频繁重绘 footer
+      // （1.6.0 的 #9549 只优化了 transcript，footer 仍每帧渲染）。旧条目不可变，
+      // 只有最后一条会因流式而变化，故缓存「除最后一条外」的聚合，每次只重算最后
+      // 一条，把热路径降到 O(1)；条目数变化（新增/回退/换会话）时才 O(n) 重算一次。
+      type UsageTotals = {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        cost: number;
+      };
+      const zeroTotals = (): UsageTotals => ({
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cost: 0,
+      });
+      /** 单条 entries → 用量快照（assistant 附带缓存命中率）；非用量条目返回 null。 */
+      const entryUsage = (
+        e: any,
+      ): (UsageTotals & { rate?: number }) | null => {
+        const fromUsage = (u: {
+          input: number;
+          output: number;
+          cacheRead: number;
+          cacheWrite: number;
+          cost: { total: number };
+        }): UsageTotals => ({
+          input: u.input,
+          output: u.output,
+          cacheRead: u.cacheRead,
+          cacheWrite: u.cacheWrite,
+          cost: u.cost.total,
+        });
+        if (e.type === "message" && e.message.role === "assistant") {
+          const u = (e.message as AssistantMessage).usage;
+          const promptTokens = u.input + u.cacheRead + u.cacheWrite;
+          return {
+            ...fromUsage(u),
+            rate:
+              promptTokens > 0
+                ? (u.cacheRead / promptTokens) * 100
+                : undefined,
+          };
+        }
+        if (
+          e.type === "message" &&
+          e.message.role === "toolResult" &&
+          e.message.usage
+        ) {
+          return fromUsage(e.message.usage);
+        }
+        if (
+          (e.type === "branch_summary" || e.type === "compaction") &&
+          e.usage
+        ) {
+          return fromUsage(e.usage);
+        }
+        // 1.6.0：cache-warmer 会写 type:"usage" 的用量条目（cacheWarming 默认 "idle"）。
+        // 上游 footer 把它计入统计（usage-totals.js 的 entry.type === "usage"），
+        // 这里一并计入，否则开缓存预热时 token/费用会比内置少。
+        if (e.type === "usage" && e.usage) {
+          return fromUsage(e.usage);
+        }
+        return null;
+      };
+      // 缓存键：会话 + 叶子（分支）+ 条目数，与上游 footer 的 getSessionStats 一致。
+      // 只按条目数会漏掉「切分支到等长路径」这类内容变了、条数不变的情况而串味。
+      let prefixKey = "";
+      let prefixTotals: UsageTotals = zeroTotals();
+      let prefixRate: number | undefined;
+
       return {
         dispose() {
           unsubscribeBranch?.();
@@ -78,46 +153,43 @@ export function setupChineseFooter(ctx: ExtensionContext): (() => void) | undefi
         invalidate() {},
         /** 汇总会话 usage 统计并渲染三行中文 footer，见模块级说明。 */
         render(width: number): string[] {
-          let input = 0,
-            output = 0,
-            cacheRead = 0,
-            cacheWrite = 0,
-            cost = 0;
-          const addUsage = (t: {
-            input: number;
-            output: number;
-            cacheRead: number;
-            cacheWrite: number;
-            cost: { total: number };
-          }) => {
-            input += t.input;
-            output += t.output;
-            cacheRead += t.cacheRead;
-            cacheWrite += t.cacheWrite;
-            cost += t.cost.total;
-          };
-          let latestRate: number | undefined;
-
-          for (const e of ctx.sessionManager.getEntries()) {
-            if (e.type === "message" && e.message.role === "assistant") {
-              const u = (e.message as AssistantMessage).usage;
-              addUsage(u);
-              const promptTokens = u.input + u.cacheRead + u.cacheWrite;
-              latestRate =
-                promptTokens > 0
-                  ? (u.cacheRead / promptTokens) * 100
-                  : undefined;
-            } else if (
-              e.type === "message" &&
-              e.message.role === "toolResult" &&
-              e.message.usage
-            ) {
-              addUsage(e.message.usage as any);
-            } else if (
-              (e.type === "branch_summary" || e.type === "compaction") &&
-              (e as any).usage
-            ) {
-              addUsage((e as any).usage);
+          const entries = ctx.sessionManager.getEntries();
+          const n = entries.length;
+          const cacheKey = `${ctx.sessionManager.getSessionId()}|${ctx.sessionManager.getLeafId()}|${n}`;
+          // 除最后一条外的聚合只在会话/分支/条目数变化时重算（旧条目不可变）。
+          if (cacheKey !== prefixKey) {
+            const p = zeroTotals();
+            let rate: number | undefined;
+            for (let i = 0; i < n - 1; i++) {
+              const u = entryUsage(entries[i]);
+              if (!u) continue;
+              p.input += u.input;
+              p.output += u.output;
+              p.cacheRead += u.cacheRead;
+              p.cacheWrite += u.cacheWrite;
+              p.cost += u.cost;
+              if (u.rate !== undefined) rate = u.rate;
+            }
+            prefixTotals = p;
+            prefixRate = rate;
+            prefixKey = cacheKey;
+          }
+          // 每次只重算最后一条：流式中它的 usage 持续变化。
+          let input = prefixTotals.input,
+            output = prefixTotals.output,
+            cacheRead = prefixTotals.cacheRead,
+            cacheWrite = prefixTotals.cacheWrite,
+            cost = prefixTotals.cost;
+          let latestRate = prefixRate;
+          if (n > 0) {
+            const last = entryUsage(entries[n - 1]);
+            if (last) {
+              input += last.input;
+              output += last.output;
+              cacheRead += last.cacheRead;
+              cacheWrite += last.cacheWrite;
+              cost += last.cost;
+              if (last.rate !== undefined) latestRate = last.rate;
             }
           }
 

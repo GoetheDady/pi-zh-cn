@@ -63,6 +63,8 @@ function footerRenderer(
     percent?: number | null;
     statuses?: Map<string, string>;
     providers?: number;
+    sessionId?: string;
+    leafId?: string;
   } = {},
 ) {
   let factory: any;
@@ -89,6 +91,9 @@ function footerRenderer(
       // 临时目录路径不在家目录下，不会被缩成 ~，比真实情况更长。
       getCwd: () => projectDir,
       getSessionName: () => "一个相当长的会话名字用来施加宽度压力",
+      // footer 的 usage 缓存键用到会话/分支（与上游 getSessionStats 一致）。
+      getSessionId: () => opts.sessionId ?? "session-under-test",
+      getLeafId: () => opts.leafId ?? "leaf-under-test",
       getEntries: () =>
         opts.entries ?? [
           { type: "message", message: { role: "assistant", usage: bigUsage } },
@@ -181,4 +186,111 @@ test("footer：宽度充足时关键项齐全（中文标签没被误截断）",
       `宽度 200 时 footer 缺少「${expected}」：\n${text}`,
     );
   }
+});
+
+test("footer：usage 增量缓存正确（追加/流式增长/回退后统计不陈旧）", () => {
+  // P3 优化：footer 只缓存「除最后一条外」的聚合，每次重算最后一条。
+  // 这条测试钉住缓存的正确性——追加、流式增长、回退三种情况都不能用到陈旧值。
+  const entries: any[] = [];
+  const render = footerRenderer({ entries });
+  const usage = (input: number) => ({
+    input,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: { total: 0 },
+  });
+
+  entries.push({
+    type: "message",
+    message: { role: "assistant", usage: usage(100) },
+  });
+  assert.ok(render(200).join("\n").includes("输入↑100"), "首条应计入 100");
+
+  entries.push({
+    type: "message",
+    message: { role: "assistant", usage: usage(200) },
+  });
+  assert.ok(
+    render(200).join("\n").includes("输入↑300"),
+    "追加后应重算为 300",
+  );
+
+  // 流式：最后一条 usage 继续增长（条目数不变），必须反映最新值而非缓存陈旧值。
+  entries[1].message.usage.input = 500;
+  assert.ok(
+    render(200).join("\n").includes("输入↑600"),
+    "流式增长最后一条应反映为 600",
+  );
+
+  // 回退：条目变少时也要重算，不能残留旧的聚合。
+  entries.pop();
+  assert.ok(
+    render(200).join("\n").includes("输入↑100"),
+    "回退后应重算回 100",
+  );
+});
+
+test("footer：空会话不崩、无 token 统计", () => {
+  const render = footerRenderer({ entries: [] });
+  const text = render(200).join("\n");
+  assert.ok(text.includes("当前目录："), "空会话仍应显示目录行");
+  assert.ok(!text.includes("输入↑"), "空会话不应有输入统计");
+});
+
+test('footer：type:"usage" 条目计入统计（1.6.0 cache-warmer）', () => {
+  // 1.6.0 的 cache-warmer 会写 type:"usage" 条目（cacheWarming 默认 "idle"），
+  // 上游 footer 计入统计；这条钉住我们也计入，且覆盖「在 prefix 里（非最后一条）」的路径。
+  const usage = (input: number) => ({
+    input,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: { total: 0 },
+  });
+  const render = footerRenderer({
+    entries: [
+      {
+        type: "usage",
+        kind: "cache_warm",
+        provider: "openai",
+        model: "gpt",
+        usage: usage(400),
+      },
+      { type: "message", message: { role: "assistant", usage: usage(100) } },
+    ],
+  });
+  assert.ok(
+    render(200).join("\n").includes("输入↑500"),
+    "usage 条目应计入统计（400+100=500）",
+  );
+});
+
+test("footer：切分支（等长、内容变）后缓存不串味", () => {
+  // 缓存键含 leafId：切到等长的另一条分支时，条数不变但 prefix 内容变了，
+  // 必须整体重算，不能复用旧聚合。
+  const usage = (input: number) => ({
+    input,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: { total: 0 },
+  });
+  const opts: any = {
+    leafId: "L1",
+    entries: [
+      { type: "message", message: { role: "assistant", usage: usage(100) } },
+      { type: "message", message: { role: "assistant", usage: usage(200) } },
+    ],
+  };
+  const render = footerRenderer(opts);
+  assert.ok(render(200).join("\n").includes("输入↑300"), "初始应为 300");
+
+  // 模拟切到等长的另一分支：条数不变，prefix 里的条目内容变了，leafId 也变。
+  opts.entries[0].message.usage.input = 600;
+  opts.leafId = "L2";
+  assert.ok(
+    render(200).join("\n").includes("输入↑800"),
+    "切分支后应重算为 600+200=800，不串味",
+  );
 });

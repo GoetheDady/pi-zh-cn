@@ -90,6 +90,13 @@ test("内置 footer 仍按扩展复刻的结构读取会话条目与 usage", () 
     footerJs.includes('entry.message.role === "toolResult"'),
     "内置 footer 不再读取 toolResult usage，需核对 footer.ts",
   );
+  // 1.6.0：cache-warmer 写 type:"usage" 条目，内置 footer/usage-totals 计入统计；
+  // footer.ts 的 entryUsage 已同步处理，这里钉住上游这一结构。
+  assert.ok(
+    footerJs.includes('entry.type === "usage"') &&
+      usageTotals.includes('entry.type === "usage"'),
+    '内置 footer/usage-totals 不再处理 type:"usage" 条目，需核对 footer.ts 的 entryUsage',
+  );
   // usage 字段形状：{ input, output, cacheRead, cacheWrite, cost.total }
   for (const field of ["input", "output", "cacheRead", "cacheWrite", "cost"]) {
     assert.ok(
